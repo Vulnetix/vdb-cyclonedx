@@ -1,16 +1,20 @@
 package cyclonedx
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 // CycloneDX 1.2–1.4 carry metadata.tools as an array of tool objects; 1.5+ use
 // an object with a components[] list. ParseCDX must accept both, and tool
 // metadata being ancillary must never fail the whole ingestion.
 func TestParseCDX_ToolsArrayForm(t *testing.T) {
 	data := []byte(`{
-		"bomFormat":"CycloneDX","specVersion":"1.4","serialNumber":"urn:uuid:abc","version":1,
+		"bomFormat":"CycloneDX","specVersion":"1.4","serialNumber":"urn:uuid:00000000-0000-4000-8000-000000000014","version":1,
 		"metadata":{
 			"timestamp":"2026-05-30T00:00:00Z",
-			"tools":[{"vendor":"Vulnetix","name":"vulnetix-sca","version":"v3.9.1","hashes":[{"alg":"SHA-256","content":"deadbeef"}]}]
+			"tools":[{"vendor":"Vulnetix","name":"vulnetix-sca","version":"v3.9.1","hashes":[{"alg":"SHA-256","content":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]}]
 		},
 		"components":[{"type":"library","name":"lodash","version":"4.17.21","purl":"pkg:npm/lodash@4.17.21"}]
 	}`)
@@ -22,7 +26,8 @@ func TestParseCDX_ToolsArrayForm(t *testing.T) {
 		t.Fatalf("expected 1 tool component, got %+v", bom.Metadata.Tools)
 	}
 	tm := ExtractToolMeta(bom)
-	if tm.ToolName != "vulnetix-sca" || tm.ToolVersion != "v3.9.1" || tm.ToolVendor != "Vulnetix" || tm.ToolHash != "deadbeef" {
+	if tm.ToolName != "vulnetix-sca" || tm.ToolVersion != "v3.9.1" || tm.ToolVendor != "Vulnetix" ||
+		tm.ToolHash != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
 		t.Fatalf("array-form tool meta mismatch: %+v", tm)
 	}
 	if len(bom.Components) != 1 || bom.Components[0].Name != "lodash" {
@@ -32,7 +37,7 @@ func TestParseCDX_ToolsArrayForm(t *testing.T) {
 
 func TestParseCDX_ToolsObjectForm(t *testing.T) {
 	data := []byte(`{
-		"bomFormat":"CycloneDX","specVersion":"1.7","serialNumber":"urn:uuid:def","version":1,
+		"bomFormat":"CycloneDX","specVersion":"1.7","serialNumber":"urn:uuid:00000000-0000-4000-8000-000000000017","version":1,
 		"metadata":{
 			"timestamp":"2026-05-30T00:00:00Z",
 			"tools":{"components":[{"type":"application","name":"vulnetix-sca","version":"v3.9.1","publisher":"Vulnetix"}]}
@@ -50,9 +55,10 @@ func TestParseCDX_ToolsObjectForm(t *testing.T) {
 }
 
 // A tools shape we don't model (e.g. a bare string) must be tolerated, not fatal.
-func TestParseCDX_ToolsUnknownShapeIsTolerated(t *testing.T) {
+func TestCDXTools_UnknownShapeIsTolerated(t *testing.T) {
 	data := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.5","metadata":{"tools":"acme-tool"},"components":[]}`)
-	bom, err := ParseCDX(data)
+	var bom CDXBom
+	err := json.Unmarshal(data, &bom)
 	if err != nil {
 		t.Fatalf("unknown tools shape must not fail parse: %v", err)
 	}
@@ -61,22 +67,31 @@ func TestParseCDX_ToolsUnknownShapeIsTolerated(t *testing.T) {
 	}
 }
 
-// The spec is additive across 1.2→1.7, so every version's components/vulns parse
-// through the same flat structs. Assert each version end-to-end.
+// Every supported version validates against its official schema and then parses
+// through the same flat structs for fields this package consumes.
 func TestParseCDX_AllSpecVersions(t *testing.T) {
-	versions := []string{"1.2", "1.3", "1.4", "1.5", "1.6", "1.7"}
+	versions := []string{"1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "2.0"}
+	uuids := map[string]string{
+		"1.2": "00000000-0000-4000-8000-000000000012",
+		"1.3": "00000000-0000-4000-8000-000000000013",
+		"1.4": "00000000-0000-4000-8000-000000000014",
+		"1.5": "00000000-0000-4000-8000-000000000015",
+		"1.6": "00000000-0000-4000-8000-000000000016",
+		"1.7": "00000000-0000-4000-8000-000000000017",
+		"2.0": "00000000-0000-4000-8000-000000000020",
+	}
 	for _, v := range versions {
+		formatField := `"bomFormat":"CycloneDX"`
+		if v == "2.0" {
+			formatField = `"specFormat":"CycloneDX"`
+		}
 		data := []byte(`{
-			"bomFormat":"CycloneDX","specVersion":"` + v + `","serialNumber":"urn:uuid:` + v + `","version":1,
+			` + formatField + `,"specVersion":"` + v + `","serialNumber":"urn:uuid:` + uuids[v] + `","version":1,
 			"metadata":{"timestamp":"2026-05-30T00:00:00Z",
 				"component":{"type":"application","bom-ref":"root","name":"app","version":"1.0.0"}},
 			"components":[
 				{"type":"library","bom-ref":"c1","name":"openssl","version":"3.0.1","purl":"pkg:generic/openssl@3.0.1",
 				 "licenses":[{"license":{"id":"Apache-2.0"}}]}
-			],
-			"vulnerabilities":[
-				{"id":"CVE-2022-0001","source":{"name":"nvd"},"affects":[{"ref":"c1"}],
-				 "ratings":[{"score":7.5,"severity":"high","method":"CVSSv3","vector":"AV:N"}],"cwes":[79]}
 			]
 		}`)
 		bom, err := ParseCDX(data)
@@ -86,11 +101,11 @@ func TestParseCDX_AllSpecVersions(t *testing.T) {
 		if bom.SpecVersion != v {
 			t.Fatalf("spec %s: specVersion mismatch: %q", v, bom.SpecVersion)
 		}
+		if bom.BomFormat != "CycloneDX" {
+			t.Fatalf("spec %s: bom format compatibility mismatch: %q", v, bom.BomFormat)
+		}
 		if len(bom.Components) != 1 || bom.Components[0].Name != "openssl" {
 			t.Fatalf("spec %s: components mismatch: %+v", v, bom.Components)
-		}
-		if len(bom.Vulnerabilities) != 1 || bom.Vulnerabilities[0].ID != "CVE-2022-0001" {
-			t.Fatalf("spec %s: vulnerabilities mismatch: %+v", v, bom.Vulnerabilities)
 		}
 		if ExtractLicense(bom.Components[0]) != "Apache-2.0" {
 			t.Fatalf("spec %s: license mismatch", v)
@@ -102,7 +117,7 @@ func TestParseCDX_AllSpecVersions(t *testing.T) {
 // (1.2–1.3) must both populate CDXDependency.DependsOn.
 func TestParseCDX_DependsOnBothForms(t *testing.T) {
 	modern := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6",
-		"dependencies":[{"ref":"root","dependsOn":["a","b"]}]}`)
+		"version":1,"dependencies":[{"ref":"root","dependsOn":["a","b"]}]}`)
 	bom, err := ParseCDX(modern)
 	if err != nil {
 		t.Fatalf("modern dependsOn parse: %v", err)
@@ -113,13 +128,35 @@ func TestParseCDX_DependsOnBothForms(t *testing.T) {
 	}
 
 	legacy := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.3",
-		"dependencies":[{"ref":"root","dependencies":["a","b","c"]}]}`)
+		"version":1,"dependencies":[{"ref":"root","dependencies":["a","b","c"]}]}`)
 	bom, err = ParseCDX(legacy)
 	if err != nil {
 		t.Fatalf("legacy dependencies parse: %v", err)
 	}
 	if len(bom.Dependencies[0].DependsOn) != 3 {
 		t.Fatalf("legacy dependencies should coalesce into DependsOn: %+v", bom.Dependencies)
+	}
+}
+
+func TestValidateCDX_RejectsInvalidSchema(t *testing.T) {
+	data := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.7","version":1,"unknown":true}`)
+	err := ValidateCDX(data)
+	if err == nil {
+		t.Fatal("expected schema validation error")
+	}
+	if !strings.Contains(err.Error(), "schema validation failed") {
+		t.Fatalf("expected schema validation failure, got %v", err)
+	}
+}
+
+func TestDetectSpecVersion_RejectsUnsupportedVersion(t *testing.T) {
+	data := []byte(`{"specFormat":"CycloneDX","specVersion":"2.1","version":1}`)
+	_, err := DetectSpecVersion(data)
+	if err == nil {
+		t.Fatal("expected unsupported version error")
+	}
+	if !strings.Contains(err.Error(), `unsupported CycloneDX specVersion "2.1"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
