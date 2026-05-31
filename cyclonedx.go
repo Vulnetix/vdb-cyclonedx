@@ -11,18 +11,18 @@ type CDXOrg struct {
 }
 
 type CDXComponent struct {
-	BomRef       string      `json:"bom-ref"`
-	Type         string      `json:"type"`
-	Name         string      `json:"name"`
-	Version      string      `json:"version"`
-	Purl         string      `json:"purl"`
-	Group        string      `json:"group"`
-	Scope        string      `json:"scope"`
-	Author       string      `json:"author"`
-	Publisher    string      `json:"publisher"`
-	Description  string      `json:"description"`
-	Manufacturer *CDXOrg     `json:"manufacturer"`
-	Supplier     *CDXOrg     `json:"supplier"`
+	BomRef       string  `json:"bom-ref"`
+	Type         string  `json:"type"`
+	Name         string  `json:"name"`
+	Version      string  `json:"version"`
+	Purl         string  `json:"purl"`
+	Group        string  `json:"group"`
+	Scope        string  `json:"scope"`
+	Author       string  `json:"author"`
+	Publisher    string  `json:"publisher"`
+	Description  string  `json:"description"`
+	Manufacturer *CDXOrg `json:"manufacturer"`
+	Supplier     *CDXOrg `json:"supplier"`
 	Hashes       []struct {
 		Alg     string `json:"alg"`
 		Content string `json:"content"`
@@ -51,9 +51,9 @@ type CDXVulnRating struct {
 }
 
 type CDXVulnerability struct {
-	BomRef         string          `json:"bom-ref"`
-	ID             string          `json:"id"`
-	Source         *struct {
+	BomRef string `json:"bom-ref"`
+	ID     string `json:"id"`
+	Source *struct {
 		Name string `json:"name"`
 		URL  string `json:"url"`
 	} `json:"source"`
@@ -69,11 +69,11 @@ type CDXVulnerability struct {
 }
 
 type CDXMetadata struct {
-	Timestamp    string           `json:"timestamp"`
-	Component    *CDXComponent    `json:"component"`
-	Manufacture  *CDXOrg          `json:"manufacture"`
-	Manufacturer *CDXOrg          `json:"manufacturer"`
-	Supplier     *CDXOrg          `json:"supplier"`
+	Timestamp    string        `json:"timestamp"`
+	Component    *CDXComponent `json:"component"`
+	Manufacture  *CDXOrg       `json:"manufacture"`
+	Manufacturer *CDXOrg       `json:"manufacturer"`
+	Supplier     *CDXOrg       `json:"supplier"`
 	Authors      []struct {
 		Name string `json:"name"`
 	} `json:"authors"`
@@ -85,7 +85,7 @@ type CDXMetadata struct {
 //   - 1.5+:    an object, e.g. {"components":[...], "services":[...]}
 //
 // We accept both and tolerate anything else. Tool metadata is ancillary,
-// best-effort enrichment (see extractToolMeta), so a malformed or unexpected
+// best-effort enrichment (see ExtractToolMeta), so a malformed or unexpected
 // tools shape must never fail the whole BOM ingestion — UnmarshalJSON only ever
 // returns nil, leaving Components empty when it can't make sense of the input.
 type CDXTools struct {
