@@ -40,6 +40,7 @@ type CDXComponent struct {
 	Name         string  `json:"name"`
 	Version      string  `json:"version"`
 	Purl         string  `json:"purl"`
+	Cpe          string  `json:"cpe"`
 	Group        string  `json:"group"`
 	Scope        string  `json:"scope"`
 	Author       string  `json:"author"`
