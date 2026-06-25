@@ -69,6 +69,18 @@ func TestBuildAndParseAIBOMRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildAIBOMValidatesSpecVersions(t *testing.T) {
+	det := AIDetections{
+		Tools:  []AITool{{ID: "claude-code", Name: "Claude Code", Vendor: "Anthropic"}},
+		Models: []AIModel{{Name: "gpt-4o", Provider: "OpenAI", Known: true}},
+	}
+	for _, spec := range []string{"1.6", "1.7"} {
+		if _, err := BuildAIBOM(det, AIBOMOptions{SpecVersion: spec}); err != nil {
+			t.Fatalf("BuildAIBOM(spec=%s) should validate: %v", spec, err)
+		}
+	}
+}
+
 func TestParseAIBOMRejectsNonCycloneDX(t *testing.T) {
 	if _, err := ParseAIBOM([]byte(`{"foo":"bar"}`)); err == nil {
 		t.Fatal("expected error for non-CycloneDX document")
