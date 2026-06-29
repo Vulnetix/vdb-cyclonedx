@@ -149,22 +149,22 @@ type AIBOMSystem struct {
 // and the vulnetix:git/* / vulnetix:env/* properties. All fields are optional;
 // a nil project yields a minimal "project" component.
 type AIBOMProject struct {
-	Name            string
-	Version         string
-	Description     string
-	Branch          string
-	Commit          string
-	CommitTimestamp string
-	CommitMessage   string
-	CommitAuthor    string
-	CommitEmail     string
-	Tags            []string
-	IsDirty         bool
-	IsWorktree      bool
-	RepoRoot        string
-	RemoteURLs      []string
+	Name             string
+	Version          string
+	Description      string
+	Branch           string
+	Commit           string
+	CommitTimestamp  string
+	CommitMessage    string
+	CommitAuthor     string
+	CommitEmail      string
+	Tags             []string
+	IsDirty          bool
+	IsWorktree       bool
+	RepoRoot         string
+	RemoteURLs       []string
 	RecentCommitters []AIBOMContact
-	System          *AIBOMSystem
+	System           *AIBOMSystem
 }
 
 // AIBOMOptions configures BuildAIBOM.
@@ -217,6 +217,10 @@ type aibomComp struct {
 	ExternalReferences []aibomExtRef   `json:"externalReferences,omitempty"`
 	Properties         []aibomProp     `json:"properties,omitempty"`
 	ModelCard          *aibomModelCard `json:"modelCard,omitempty"`
+	// CryptoProperties is set only by the CBOM builder (cbom.go) on
+	// "cryptographic-asset" components; the AIBOM builder never sets it
+	// (omitempty keeps it absent from AIBOM output).
+	CryptoProperties *cdxCryptoProperties `json:"cryptoProperties,omitempty"`
 }
 
 type aibomContact struct {
@@ -618,9 +622,9 @@ type cdxParseComp struct {
 }
 
 type cdxParseBOM struct {
-	BOMFormat    string          `json:"bomFormat"`
-	SpecVersion  string          `json:"specVersion"`
-	SerialNumber string          `json:"serialNumber"`
+	BOMFormat    string `json:"bomFormat"`
+	SpecVersion  string `json:"specVersion"`
+	SerialNumber string `json:"serialNumber"`
 	Metadata     *struct {
 		Component  *cdxParseComp  `json:"component"`
 		Properties []cdxParseProp `json:"properties"`
