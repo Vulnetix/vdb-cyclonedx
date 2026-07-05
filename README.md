@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="pix.svg" alt="Pix, the Vulnetix mascot" width="110">
+</p>
+
 # vdb-cyclonedx
 
 CycloneDX SBOM parser and schema validator for Go, supporting spec versions **1.2 through 1.7** plus
