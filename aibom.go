@@ -52,6 +52,17 @@ const (
 	PropAIEvidenceCount    = "vulnetix:ai/evidence-count"
 	PropAIEvidence         = "vulnetix:ai/evidence"
 
+	PropAIInfraDetected = "vulnetix:aibom/infrastructure-detected"
+	PropAIDataDetected  = "vulnetix:aibom/data-detected"
+	PropAIInfraID       = "vulnetix:ai/infra-id"
+	PropAIImage         = "vulnetix:ai/image"
+	PropAIImageTag      = "vulnetix:ai/image-tag"
+	PropAIConfidenceGap = "vulnetix:ai/confidence-gap"
+	PropAIGapReason     = "vulnetix:ai/gap-reason"
+	PropAIDataKind      = "vulnetix:ai/data-kind"
+	PropAIDataSource    = "vulnetix:ai/data-source"
+	PropAIMountPath     = "vulnetix:ai/mount-path"
+
 	PropGitBranch    = "vulnetix:git/branch"
 	PropGitCommit    = "vulnetix:git/commit"
 	PropGitCommitTS  = "vulnetix:git/commit-timestamp"
@@ -122,11 +133,45 @@ type AIModel struct {
 	Evidence    []AIEvidence `json:"evidence,omitempty"`
 }
 
+// AIInfra is a detected AI infrastructure workload or runtime found in IaC
+// files (Kubernetes manifests, compose files, Dockerfiles, Terraform).
+// Rather than a graded confidence, an infra detection either validated fully
+// or carries ConfidenceGap=true with GapReason stating exactly what could not
+// be verified and why (e.g. a non-semver image tag, a Helm-templated value).
+type AIInfra struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category,omitempty"` // inference|agent|training|evaluation|vector-database|managed-ai|accelerator
+	Version  string `json:"version,omitempty"`  // only when verifiable (semver-shaped tag, declared CRD version)
+	RawTag   string `json:"rawTag,omitempty"`   // image tag as written, preserved even when not a valid version
+	Image    string `json:"image,omitempty"`    // matched image reference, when image-derived
+	Homepage string `json:"homepage,omitempty"`
+
+	ConfidenceGap bool         `json:"confidenceGap,omitempty"`
+	GapReason     string       `json:"gapReason,omitempty"`
+	Evidence      []AIEvidence `json:"evidence,omitempty"`
+}
+
+// AIData is a model artifact or dataset backing source discovered in IaC
+// (volume mounts, storage URIs) or on disk (model weight files).
+type AIData struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind,omitempty"`      // model-artifact|dataset
+	Source    string `json:"source,omitempty"`    // pvc|configMap|secret|hostPath|emptyDir|nfs|csi|bind|uri|file|unknown
+	MountPath string `json:"mountPath,omitempty"` // container mount path, when mount-derived
+
+	ConfidenceGap bool         `json:"confidenceGap,omitempty"`
+	GapReason     string       `json:"gapReason,omitempty"`
+	Evidence      []AIEvidence `json:"evidence,omitempty"`
+}
+
 // AIDetections is the full result of an AIBOM scan.
 type AIDetections struct {
 	Tools          []AITool    `json:"tools,omitempty"`
 	Libraries      []AILibrary `json:"libraries,omitempty"`
 	Models         []AIModel   `json:"models,omitempty"`
+	Infrastructure []AIInfra   `json:"infrastructure,omitempty"`
+	Data           []AIData    `json:"data,omitempty"`
 	CatalogVersion string      `json:"catalogVersion,omitempty"`
 }
 
@@ -328,6 +373,12 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 		mkProp(PropAILibsDetected, strconv.Itoa(len(det.Libraries))),
 		mkProp(PropAIModelsDetected, strconv.Itoa(len(det.Models))),
 	)
+	if len(det.Infrastructure) > 0 || len(det.Data) > 0 {
+		doc.Metadata.Properties = append(doc.Metadata.Properties,
+			mkProp(PropAIInfraDetected, strconv.Itoa(len(det.Infrastructure))),
+			mkProp(PropAIDataDetected, strconv.Itoa(len(det.Data))),
+		)
+	}
 	doc.Metadata.Properties = append(doc.Metadata.Properties, envProps...)
 
 	validRefs := map[string]bool{projRef: true}
@@ -417,6 +468,56 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 			parent = r
 		}
 		deps[parent] = append(deps[parent], ref)
+	}
+
+	// AI infrastructure runtimes/workloads (from IaC) → application components.
+	for _, inf := range det.Infrastructure {
+		ref := "urn:ai-infra:" + inf.ID
+		comp := aibomComp{Type: "application", BOMRef: ref, Name: inf.Name, Version: inf.Version}
+		if inf.Homepage != "" {
+			comp.ExternalReferences = append(comp.ExternalReferences, aibomExtRef{Type: "website", URL: inf.Homepage})
+		}
+		comp.Properties = append(comp.Properties, mkProp(PropAICategory, nonEmpty(inf.Category, "infrastructure")), mkProp(PropAIInfraID, inf.ID))
+		if inf.Image != "" {
+			comp.Properties = append(comp.Properties, mkProp(PropAIImage, inf.Image))
+		}
+		if inf.RawTag != "" {
+			comp.Properties = append(comp.Properties, mkProp(PropAIImageTag, inf.RawTag))
+		}
+		if inf.ConfidenceGap {
+			comp.Properties = append(comp.Properties,
+				mkProp(PropAIConfidenceGap, "true"),
+				mkProp(PropAIGapReason, inf.GapReason))
+		}
+		appendEvidenceProps(&comp, inf.Evidence)
+		doc.Components = append(doc.Components, comp)
+		validRefs[ref] = true
+		deps[projRef] = append(deps[projRef], ref)
+	}
+
+	// Model artifacts / datasets → data components.
+	for i, d := range det.Data {
+		ref := fmt.Sprintf("urn:ai-data:%d", i)
+		comp := aibomComp{Type: "data", BOMRef: ref, Name: d.Name}
+		comp.Properties = append(comp.Properties, mkProp(PropAICategory, "data"))
+		if d.Kind != "" {
+			comp.Properties = append(comp.Properties, mkProp(PropAIDataKind, d.Kind))
+		}
+		if d.Source != "" {
+			comp.Properties = append(comp.Properties, mkProp(PropAIDataSource, d.Source))
+		}
+		if d.MountPath != "" {
+			comp.Properties = append(comp.Properties, mkProp(PropAIMountPath, d.MountPath))
+		}
+		if d.ConfidenceGap {
+			comp.Properties = append(comp.Properties,
+				mkProp(PropAIConfidenceGap, "true"),
+				mkProp(PropAIGapReason, d.GapReason))
+		}
+		appendEvidenceProps(&comp, d.Evidence)
+		doc.Components = append(doc.Components, comp)
+		validRefs[ref] = true
+		deps[projRef] = append(deps[projRef], ref)
 	}
 
 	doc.Dependencies = buildDeps(deps, validRefs)
@@ -658,6 +759,14 @@ type AIBOMComponentRow struct {
 	ToolType          string
 	Homepage          string
 	Languages         string
+	InfraID           string
+	Image             string
+	ImageTag          string
+	DataKind          string
+	DataSource        string
+	MountPath         string
+	ConfidenceGap     bool
+	GapReason         string
 	PropertiesJSON    string
 	ExternalRefsJSON  string
 	ModelCardJSON     string
@@ -679,6 +788,8 @@ type AIBOMInventory struct {
 	ToolCount        int
 	LibraryCount     int
 	ModelCount       int
+	InfraCount       int
+	DataCount        int
 	MetadataJSON     string
 	DependenciesJSON string
 	Components       []AIBOMComponentRow
@@ -705,6 +816,8 @@ func categoryForParsedComponent(c cdxParseComp) string {
 		return "model"
 	case "library":
 		return "ai-sdk"
+	case "data":
+		return "data"
 	}
 	return ""
 }
@@ -783,6 +896,14 @@ func ParseAIBOM(data []byte) (*AIBOMInventory, error) {
 			Confidence:       firstProp(c.Properties, PropAIConfidence),
 			ToolType:         firstProp(c.Properties, PropAIToolType),
 			Languages:        firstProp(c.Properties, PropAILanguages),
+			InfraID:          firstProp(c.Properties, PropAIInfraID),
+			Image:            firstProp(c.Properties, PropAIImage),
+			ImageTag:         firstProp(c.Properties, PropAIImageTag),
+			DataKind:         firstProp(c.Properties, PropAIDataKind),
+			DataSource:       firstProp(c.Properties, PropAIDataSource),
+			MountPath:        firstProp(c.Properties, PropAIMountPath),
+			ConfidenceGap:    firstProp(c.Properties, PropAIConfidenceGap) == "true",
+			GapReason:        firstProp(c.Properties, PropAIGapReason),
 			PropertiesJSON:   marshalString(c.Properties),
 			ExternalRefsJSON: marshalString(c.ExternalReferences),
 		}
@@ -820,6 +941,12 @@ func ParseAIBOM(data []byte) (*AIBOMInventory, error) {
 			inv.LibraryCount++
 		case "model":
 			inv.ModelCount++
+		case "data":
+			inv.DataCount++
+		default:
+			if row.InfraID != "" {
+				inv.InfraCount++
+			}
 		}
 	}
 	inv.ComponentCount = len(inv.Components)

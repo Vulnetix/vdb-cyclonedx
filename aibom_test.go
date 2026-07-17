@@ -69,6 +69,71 @@ func TestBuildAndParseAIBOMRoundTrip(t *testing.T) {
 	}
 }
 
+func TestBuildAndParseAIBOMInfraDataRoundTrip(t *testing.T) {
+	det := AIDetections{
+		Infrastructure: []AIInfra{
+			{
+				ID: "vllm", Name: "vLLM", Category: "inference", Version: "0.6.3", RawTag: "v0.6.3",
+				Image:    "vllm/vllm-openai:v0.6.3",
+				Evidence: []AIEvidence{{Method: "iac", Category: "image", Locator: "deploy.yaml:12"}},
+			},
+			{
+				ID: "triton", Name: "NVIDIA Triton", Category: "inference", RawTag: "24.05-py3",
+				Image:         "nvcr.io/nvidia/tritonserver:24.05-py3",
+				ConfidenceGap: true,
+				GapReason:     "version unverified: image tag '24.05-py3' is not semver-shaped",
+			},
+		},
+		Data: []AIData{
+			{
+				Name: "pvc:models-pvc", Kind: "model-artifact", Source: "pvc", MountPath: "/models",
+				Evidence: []AIEvidence{{Method: "iac", Category: "mount", Locator: "deploy.yaml:30"}},
+			},
+			{
+				Name: "volume:weights", Kind: "model-artifact", Source: "unknown", MountPath: "/weights",
+				ConfidenceGap: true, GapReason: "volume 'weights' has no matching volumes[] entry",
+			},
+		},
+	}
+
+	for _, spec := range []string{"1.6", "1.7"} {
+		data, err := BuildAIBOM(det, AIBOMOptions{SpecVersion: spec})
+		if err != nil {
+			t.Fatalf("BuildAIBOM(spec=%s) with infra/data should validate: %v", spec, err)
+		}
+		inv, err := ParseAIBOM(data)
+		if err != nil {
+			t.Fatalf("ParseAIBOM(spec=%s): %v", spec, err)
+		}
+		if inv.InfraCount != 2 || inv.DataCount != 2 {
+			t.Fatalf("spec=%s counts infra=%d data=%d, want 2/2", spec, inv.InfraCount, inv.DataCount)
+		}
+		var vllm, triton, gapData *AIBOMComponentRow
+		for i := range inv.Components {
+			switch {
+			case inv.Components[i].InfraID == "vllm":
+				vllm = &inv.Components[i]
+			case inv.Components[i].InfraID == "triton":
+				triton = &inv.Components[i]
+			case inv.Components[i].Category == "data" && inv.Components[i].ConfidenceGap:
+				gapData = &inv.Components[i]
+			}
+		}
+		if vllm == nil || vllm.Version != "0.6.3" || vllm.ImageTag != "v0.6.3" || vllm.Image != "vllm/vllm-openai:v0.6.3" || vllm.ConfidenceGap {
+			t.Fatalf("vllm row = %+v", vllm)
+		}
+		if vllm.Category != "inference" {
+			t.Fatalf("vllm category = %q", vllm.Category)
+		}
+		if triton == nil || !triton.ConfidenceGap || triton.GapReason == "" || triton.Version != "" {
+			t.Fatalf("triton gap row = %+v", triton)
+		}
+		if gapData == nil || gapData.GapReason != "volume 'weights' has no matching volumes[] entry" || gapData.MountPath != "/weights" {
+			t.Fatalf("gap data row = %+v", gapData)
+		}
+	}
+}
+
 func TestBuildAIBOMValidatesSpecVersions(t *testing.T) {
 	det := AIDetections{
 		Tools:  []AITool{{ID: "claude-code", Name: "Claude Code", Vendor: "Anthropic"}},
