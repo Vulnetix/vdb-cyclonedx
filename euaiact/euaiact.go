@@ -130,8 +130,13 @@ const (
 // EvidenceItem is one concrete artifact supporting an obligation.
 type EvidenceItem struct {
 	Component string `json:"component"`
-	Kind      string `json:"kind"`   // model | service | sdk | agent | dataset | runtime | accelerator | provenance | log
+	Kind      string `json:"kind"`   // model | service | sdk | agent | dataset | runtime | accelerator | provenance | log | finding | scan | vex | policy | sbom | crypto
 	Detail    string `json:"detail"` // what it evidences
+	// Link is an optional route path to the source page for this evidence
+	// (e.g. "/vdb-findings", "/vdb-scanner-results/<uuid>", "/vdb-ai-inventory/<uuid>").
+	Link string `json:"link,omitempty"`
+	// RefID is an optional identifier of the underlying record (uuid, count).
+	RefID string `json:"refId,omitempty"`
 }
 
 // ArticleMapping is the evidence posture for a single framework article.
