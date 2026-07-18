@@ -11,11 +11,12 @@ import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
 type ReportContext = euaiact.ReportContext
 
 const (
-	routeFindings  = "/vdb-findings"
-	routeScans     = "/vdb-scanner-results"
-	routeInventory = "/vdb-ai-inventory"
-	routeUploads   = "/vdb-uploads"
-	routeCrypto    = "/vdb-crypto-inventory"
+	routeFindings   = "/vdb-findings"
+	routeScans      = "/vdb-scanner-results"
+	routeInventory  = "/vdb-ai-inventory"
+	routeUploads    = "/vdb-uploads"
+	routeCrypto     = "/vdb-crypto-inventory"
+	routeAiFirewall = "/vdb-ai-firewall"
 )
 
 // MapReport returns the Annex A control mappings for a whole report.
@@ -166,13 +167,18 @@ func rA624(ctx ReportContext) ControlMapping {
 func rA626(ctx ReportContext) ControlMapping {
 	m := ctl("A.6", "A.6.2.6", "Operation & monitoring",
 		"The AI system is operated and monitored, including capturing changes.")
-	if ctx.IngestionSnapshotCount <= 1 && ctx.ScannerRunCount <= 1 {
+	if ctx.IngestionSnapshotCount <= 1 && ctx.ScannerRunCount <= 1 && ctx.AiFirewallRequestCount <= 1 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no recurring assessment history yet."
 		m.Gaps = append(m.Gaps, "No monitoring history")
 		return m
 	}
-	m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring operation monitoring", Link: routeScans})
+	if ctx.ScannerRunCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring operation monitoring", Link: routeScans})
+	}
+	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: "Runtime AI operation monitored at the gateway over the period", Link: routeAiFirewall})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Recurring assessments capture operational changes over the period."
 	return m
@@ -208,10 +214,13 @@ func rA627(ctx ReportContext, inv inventory) ControlMapping {
 func rA628(ctx ReportContext) ControlMapping {
 	m := ctl("A.6", "A.6.2.8", "Recording of event logs",
 		"Events over the AI system's life cycle are recorded (logging).")
-	if ctx.AccessLogCount == 0 && ctx.ScannerRunCount == 0 {
+	if ctx.AccessLogCount == 0 && ctx.ScannerRunCount == 0 && ctx.AiFirewallRequestCount == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no access-log or assessment-run event records found."
 		m.Gaps = append(m.Gaps, "No event logs found")
+		if ctx.AiFirewallConfigured && !ctx.AiFirewallLogsEnabled {
+			m.Gaps = append(m.Gaps, "AI gateway configured but inference logging is disabled — runtime AI events are not recorded")
+		}
 		return m
 	}
 	if ctx.AccessLogCount > 0 {
@@ -220,8 +229,14 @@ func rA628(ctx ReportContext) ControlMapping {
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Assessment events recorded", Link: routeScans})
 	}
+	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)", Link: routeAiFirewall})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Life-cycle events are recorded via access logs and assessment-run history — the auditable lineage this control requires."
+	if ctx.AiFirewallConfigured && !ctx.AiFirewallLogsEnabled {
+		m.Gaps = append(m.Gaps, "AI gateway configured but inference logging is disabled — runtime AI events are not recorded")
+	}
 	return m
 }
 
@@ -261,7 +276,7 @@ func rA92(ctx ReportContext) ControlMapping {
 	m := ctl("A.9", "A.9.2", "Responsible use & risk disposition",
 		"Processes for the responsible use of AI systems and the disposition of identified risks are in place.")
 	disposed := ctx.AffectedTotal + ctx.NotAffectedTotal + ctx.FixedTotal + ctx.OpenVexCount + ctx.SuppressionCount
-	if disposed == 0 {
+	if disposed == 0 && ctx.AiFirewallGuardrailCount == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no risk-disposition records (triage, VEX, suppression) found."
 		m.Gaps = append(m.Gaps, "No responsible-use/risk-disposition records")
@@ -275,6 +290,14 @@ func rA92(ctx ReportContext) ControlMapping {
 	}
 	if ctx.SuppressionCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Documented risk-acceptance decisions"})
+	}
+	if ctx.AiFirewallGuardrailCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy", Detail: "Responsible-use constraints (blocked patterns / PII redaction / message limits) enforced on gateway inferences", Link: routeAiFirewall})
+	}
+	if disposed == 0 {
+		m.Status = StatusPartial
+		m.Rationale = "Runtime responsible-use guardrails are configured; no per-finding risk dispositions recorded in scope."
+		return m
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Responsible use is evidenced by documented triage dispositions, VEX statements and risk-acceptance records."

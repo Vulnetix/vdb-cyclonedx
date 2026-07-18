@@ -17,6 +17,7 @@ const (
 	routeCrypto     = "/vdb-crypto-inventory"
 	routeUploads    = "/vdb-uploads"
 	routeLicenses   = "/vdb-licenses"
+	routeAiFirewall = "/vdb-ai-firewall"
 )
 
 // ReportContext is the aggregated, source-agnostic evidence view for one
@@ -69,6 +70,21 @@ type ReportContext struct {
 	HasTriagePolicy  bool
 	HasMethodology   bool
 	HasLicensePolicy bool
+
+	// AI Firewall (runtime LLM gateway) posture. Configured=false means no
+	// gateway policy exists at all; LogsEnabled=false means runtime activity
+	// is UNKNOWN (not zero) — mappers must word evidence accordingly.
+	AiFirewallConfigured          bool           // any guardrail, provider/model policy, or BYOK key
+	AiFirewallLogsEnabled         bool           // inference logging opt-in
+	AiFirewallGuardrailCount      int            // enabled guardrails
+	AiFirewallGuardrailsByType    map[string]int // blocked_pattern|max_messages|pii_redact (enabled)
+	AiFirewallEnforcingGuardrails int            // enabled guardrails with action=block or redact
+	AiFirewallProviderPolicyCount int            // provider allow/deny rows with an action set
+	AiFirewallModelPolicyCount    int            // model allow/deny rows
+	AiFirewallRequestCount        int            // gateway inferences in period (meaningful only when LogsEnabled)
+	AiFirewallBlockCount          int            // decision=block in period
+	AiFirewallRedactCount         int            // decision=redact in period
+	AiFirewallFlagCount           int            // decision=flag in period
 }
 
 // MapReport returns the EU AI Act article mappings for a whole report.
@@ -183,10 +199,13 @@ func reportArticle11(ctx ReportContext) ArticleMapping {
 func reportArticle12(ctx ReportContext) ArticleMapping {
 	m := article("Article 12", "Record-keeping",
 		"High-risk AI systems must technically allow automatic recording of events (logs) over their lifetime; maintain an inventory and record changes.")
-	if ctx.AccessLogCount == 0 && ctx.ScannerRunCount == 0 && ctx.AibomScanCount == 0 {
+	if ctx.AccessLogCount == 0 && ctx.ScannerRunCount == 0 && ctx.AibomScanCount == 0 && ctx.AiFirewallRequestCount == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no event logs, scan records or inventory history are recorded for the scope."
 		m.Gaps = append(m.Gaps, "No access-log, scanner-run or inventory records found")
+		if ctx.AiFirewallConfigured && !ctx.AiFirewallLogsEnabled {
+			m.Gaps = append(m.Gaps, "AI gateway configured but inference logging is disabled — runtime AI events are not recorded")
+		}
 		return m
 	}
 	if ctx.AccessLogCount > 0 {
@@ -198,8 +217,14 @@ func reportArticle12(ctx ReportContext) ArticleMapping {
 	if ctx.AibomScanCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AibomScanCount, "AI-BOM scan"), Kind: "provenance", Detail: "Inventory revisions recorded over time", Link: routeInventory})
 	}
+	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)", Link: routeAiFirewall})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Events are automatically recorded (access logs, assessment runs and inventory revisions) across the reporting period."
+	if ctx.AiFirewallConfigured && !ctx.AiFirewallLogsEnabled {
+		m.Gaps = append(m.Gaps, "AI gateway configured but inference logging is disabled — runtime AI events are not recorded")
+	}
 	return m
 }
 
@@ -208,7 +233,7 @@ func reportArticle14(ctx ReportContext) ArticleMapping {
 		"High-risk AI systems must be designed so that natural persons can effectively oversee them.")
 	_, _, _, _, _, agents, _ := classifyReport(ctx)
 	humanReview := ctx.AffectedTotal + ctx.NotAffectedTotal + ctx.UnderInvestigationTotal
-	if len(agents) == 0 && humanReview == 0 && ctx.SuppressionCount == 0 {
+	if len(agents) == 0 && humanReview == 0 && ctx.SuppressionCount == 0 && ctx.AiFirewallGuardrailCount == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no autonomous agents and no human triage/oversight records found."
 		m.Gaps = append(m.Gaps, "No agent autonomy surface and no human review records")
@@ -223,12 +248,22 @@ func reportArticle14(ctx ReportContext) ArticleMapping {
 	if ctx.SuppressionCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Human risk-acceptance decisions"})
 	}
-	if humanReview > 0 || ctx.SuppressionCount > 0 {
+	if ctx.AiFirewallGuardrailCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy", Detail: "Human-defined runtime constraints (blocked patterns / PII redaction / message limits) enforced on every gateway inference", Link: routeAiFirewall})
+	}
+	if len(agents) > 0 && !ctx.AiFirewallConfigured {
+		m.Gaps = append(m.Gaps, "Detected autonomous agents have no runtime gateway/guardrails")
+	}
+	switch {
+	case humanReview > 0 || ctx.SuppressionCount > 0:
 		m.Status = StatusSatisfied
 		m.Rationale = "Human oversight is evidenced by reviewed triage decisions and risk-acceptance records over the period."
-	} else {
+	case len(agents) > 0:
 		m.Status = StatusInformational
 		m.Rationale = plural(len(agents), "autonomous agent") + " detected; the oversight surface is flagged but no human-review records were found in scope."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Runtime guardrails constrain model use; no human triage records found in scope."
 	}
 	return m
 }
@@ -251,6 +286,23 @@ func reportArticle15(ctx ReportContext) ArticleMapping {
 	}
 	if ctx.HasEvaluation {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "evaluation", Kind: "runtime", Detail: "Model evaluation/benchmark workload present", Link: invLink(ctx)})
+	}
+	if ctx.AiFirewallConfigured {
+		detail := "Runtime input/output controls at the AI gateway: " + plural(ctx.AiFirewallGuardrailCount, "guardrail")
+		if pol := ctx.AiFirewallProviderPolicyCount + ctx.AiFirewallModelPolicyCount; pol > 0 {
+			detail += ", " + plural(pol, "provider/model policy")
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "AI Firewall", Kind: "policy", Detail: detail, Link: routeAiFirewall})
+		if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+			m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: itoa(ctx.AiFirewallBlockCount) + " blocked, " + itoa(ctx.AiFirewallRedactCount) + " redacted, " + itoa(ctx.AiFirewallFlagCount) + " flagged inference(s) over the period", Link: routeAiFirewall})
+		}
+	}
+	models, services, _, _, _, _, _ := classifyReport(ctx)
+	if (len(models) > 0 || len(services) > 0) && !ctx.AiFirewallConfigured {
+		m.Status = StatusPartial
+		m.Rationale = "Cybersecurity and robustness are assessed via automated testing, but the inventoried models run without runtime input/output controls."
+		m.Gaps = append(m.Gaps, "No runtime input/output controls in front of inventoried models — prompt-level attacks unmitigated")
+		return m
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Cybersecurity and robustness are continuously assessed via automated testing runs with tracked findings across the period."

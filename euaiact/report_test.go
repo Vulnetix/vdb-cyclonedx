@@ -16,6 +16,10 @@ func richReportCtx() ReportContext {
 		OpenVexCount: 850, SuppressionCount: 3,
 		ScannerRunCount: 1594, IngestionSnapshotCount: 1594, HasEvaluation: true,
 		CycloneDXCount: 378, AccessLogCount: 3084,
+		AiFirewallConfigured: true, AiFirewallLogsEnabled: true,
+		AiFirewallGuardrailCount: 3, AiFirewallGuardrailsByType: map[string]int{"blocked_pattern": 1, "pii_redact": 2},
+		AiFirewallEnforcingGuardrails: 2, AiFirewallProviderPolicyCount: 1, AiFirewallModelPolicyCount: 2,
+		AiFirewallRequestCount: 500, AiFirewallBlockCount: 12, AiFirewallRedactCount: 5, AiFirewallFlagCount: 3,
 	}
 }
 
@@ -78,6 +82,79 @@ func TestReportArt72Monitoring(t *testing.T) {
 	single := ReportContext{IngestionSnapshotCount: 1, ScannerRunCount: 1}
 	if findRep(MapReport(single), "Article 72").Status != StatusGap {
 		t.Error("single record Art 72 should be gap")
+	}
+}
+
+func TestReportArt15FirewallDowngrade(t *testing.T) {
+	// Models inventoried but no runtime gateway → satisfied downgrades to
+	// partial with an explicit gap line.
+	ctx := richReportCtx()
+	ctx.AiFirewallConfigured = false
+	ctx.AiFirewallLogsEnabled = false
+	ctx.AiFirewallGuardrailCount = 0
+	ctx.AiFirewallRequestCount = 0
+	a15 := findRep(MapReport(ctx), "Article 15")
+	if a15.Status != StatusPartial {
+		t.Fatalf("Art 15 without firewall over inventoried models = %s, want partial", a15.Status)
+	}
+	if len(a15.Gaps) == 0 {
+		t.Error("Art 15 downgrade should state the runtime-controls gap")
+	}
+	// No AI inventory at all → firewall absence must NOT downgrade.
+	ctx.Components = nil
+	if s := findRep(MapReport(ctx), "Article 15").Status; s != StatusSatisfied {
+		t.Errorf("Art 15 without models = %s, want satisfied", s)
+	}
+}
+
+func TestReportArt12FirewallLoggingDisabled(t *testing.T) {
+	ctx := richReportCtx()
+	ctx.AiFirewallLogsEnabled = false
+	ctx.AiFirewallRequestCount = 0
+	a12 := findRep(MapReport(ctx), "Article 12")
+	if a12.Status != StatusSatisfied {
+		t.Fatalf("Art 12 = %s", a12.Status)
+	}
+	found := false
+	for _, g := range a12.Gaps {
+		if g == "AI gateway configured but inference logging is disabled — runtime AI events are not recorded" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Art 12 should flag disabled inference logging: %v", a12.Gaps)
+	}
+	// With logging on, gateway logs must appear as evidence with a link.
+	a12 = findRep(MapReport(richReportCtx()), "Article 12")
+	linked := false
+	for _, e := range a12.Evidence {
+		if e.Link == routeAiFirewall {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Errorf("Art 12 should cite gateway inference logs: %+v", a12.Evidence)
+	}
+}
+
+func TestReportArt14GuardrailsRescueGap(t *testing.T) {
+	// Only guardrails — no agents, no human review → partial, not gap.
+	ctx := ReportContext{AiFirewallConfigured: true, AiFirewallGuardrailCount: 2}
+	a14 := findRep(MapReport(ctx), "Article 14")
+	if a14.Status != StatusPartial {
+		t.Fatalf("Art 14 with only guardrails = %s, want partial", a14.Status)
+	}
+	// Agents without any gateway → gap line about unguarded agents.
+	ctx = ReportContext{Components: []Component{{Category: "agent", Name: "bot", EvidenceCount: 1}}}
+	a14 = findRep(MapReport(ctx), "Article 14")
+	found := false
+	for _, g := range a14.Gaps {
+		if g == "Detected autonomous agents have no runtime gateway/guardrails" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Art 14 should flag unguarded agents: %v", a14.Gaps)
 	}
 }
 

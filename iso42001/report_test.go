@@ -55,6 +55,35 @@ func TestReportResponsibleUse(t *testing.T) {
 	}
 }
 
+func TestReportAiFirewallSignals(t *testing.T) {
+	// Guardrails alone rescue A.9.2 to partial (not gap, not satisfied).
+	fw := euaiact.ReportContext{AiFirewallConfigured: true, AiFirewallGuardrailCount: 2}
+	a92 := findCtlR(MapReport(fw), "A.9.2")
+	if a92.Status != StatusPartial {
+		t.Errorf("A.9.2 guardrails-only = %s, want partial", a92.Status)
+	}
+	// Gateway traffic evidences operation monitoring and event logging.
+	rt := euaiact.ReportContext{AiFirewallConfigured: true, AiFirewallLogsEnabled: true, AiFirewallRequestCount: 100}
+	if s := findCtlR(MapReport(rt), "A.6.2.6").Status; s != StatusSatisfied {
+		t.Errorf("A.6.2.6 with gateway history = %s, want satisfied", s)
+	}
+	if s := findCtlR(MapReport(rt), "A.6.2.8").Status; s != StatusSatisfied {
+		t.Errorf("A.6.2.8 with gateway logs = %s, want satisfied", s)
+	}
+	// Configured but logging off → A.6.2.8 gap carries the logging-disabled line.
+	off := euaiact.ReportContext{AiFirewallConfigured: true, AiFirewallGuardrailCount: 1}
+	a628 := findCtlR(MapReport(off), "A.6.2.8")
+	found := false
+	for _, g := range a628.Gaps {
+		if g == "AI gateway configured but inference logging is disabled — runtime AI events are not recorded" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("A.6.2.8 should flag disabled inference logging: %v", a628.Gaps)
+	}
+}
+
 func TestReportSixCategories(t *testing.T) {
 	cats := MapReport(euaiact.ReportContext{})
 	if len(cats) != 6 {

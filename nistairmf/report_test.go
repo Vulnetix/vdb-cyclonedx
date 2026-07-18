@@ -65,6 +65,38 @@ func TestReportGovernPolicy(t *testing.T) {
 	}
 }
 
+func TestReportAiFirewallSignals(t *testing.T) {
+	// Firewall policy alone rescues GOVERN 3.1 from gap.
+	fw := euaiact.ReportContext{AiFirewallConfigured: true, AiFirewallGuardrailCount: 2}
+	if s := findSubR(MapReport(fw), "GOVERN 3.1").Status; s != StatusSatisfied {
+		t.Errorf("GOVERN 3.1 with firewall policy = %s, want satisfied", s)
+	}
+	// Runtime-only measurement (no findings) → MEASURE 2.1 partial.
+	rt := euaiact.ReportContext{AiFirewallConfigured: true, AiFirewallLogsEnabled: true, AiFirewallRequestCount: 100, AiFirewallBlockCount: 4}
+	m21 := findSubR(MapReport(rt), "MEASURE 2.1")
+	if m21.Status != StatusPartial {
+		t.Errorf("MEASURE 2.1 runtime-only = %s, want partial", m21.Status)
+	}
+	// Gateway interventions count as risk treatment for MANAGE 1.3.
+	if s := findSubR(MapReport(rt), "MANAGE 1.3").Status; s != StatusSatisfied {
+		t.Errorf("MANAGE 1.3 with gateway blocks = %s, want satisfied", s)
+	}
+	// Recurring gateway traffic evidences MANAGE 4.1 post-deployment monitoring.
+	if s := findSubR(MapReport(rt), "MANAGE 4.1").Status; s != StatusSatisfied {
+		t.Errorf("MANAGE 4.1 with gateway history = %s, want satisfied", s)
+	}
+	// Evidence links must point at the AI Firewall page.
+	linked := false
+	for _, e := range findSubR(MapReport(rt), "MEASURE 2.1").Evidence {
+		if e.Link == routeAiFirewall {
+			linked = true
+		}
+	}
+	if !linked {
+		t.Error("MEASURE 2.1 gateway evidence should link to /vdb-ai-firewall")
+	}
+}
+
 func TestReportEmptyIsGapNotPanic(t *testing.T) {
 	fns := MapReport(euaiact.ReportContext{})
 	if len(fns) != 4 {

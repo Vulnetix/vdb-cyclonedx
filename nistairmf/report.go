@@ -11,9 +11,10 @@ import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
 type ReportContext = euaiact.ReportContext
 
 const (
-	routeFindings  = "/vdb-findings"
-	routeScans     = "/vdb-scanner-results"
-	routeInventory = "/vdb-ai-inventory"
+	routeFindings   = "/vdb-findings"
+	routeScans      = "/vdb-scanner-results"
+	routeInventory  = "/vdb-ai-inventory"
+	routeAiFirewall = "/vdb-ai-firewall"
 )
 
 // MapReport returns the AI RMF function mappings for a whole report.
@@ -86,7 +87,7 @@ func rGovern16(ctx ReportContext, inv inventory) SubcategoryMapping {
 func rGovern31(ctx ReportContext) SubcategoryMapping {
 	m := sub("GOVERN", "GOVERN 3.1", "Risk management policy",
 		"Processes, procedures and practices for managing AI risks are in place and resourced.")
-	if !ctx.HasTriagePolicy && !ctx.HasMethodology && !ctx.HasLicensePolicy {
+	if !ctx.HasTriagePolicy && !ctx.HasMethodology && !ctx.HasLicensePolicy && !ctx.AiFirewallConfigured {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no triage policy, scoring methodology or license policy is configured for the org."
 		m.Gaps = append(m.Gaps, "No risk-management policy configured")
@@ -100,6 +101,9 @@ func rGovern31(ctx ReportContext) SubcategoryMapping {
 	}
 	if ctx.HasLicensePolicy {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "license policy", Kind: "policy", Detail: "License-analysis policy configured"})
+	}
+	if ctx.AiFirewallConfigured {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "AI Firewall policy", Kind: "policy", Detail: plural(ctx.AiFirewallGuardrailCount, "guardrail") + " plus provider/model allow-deny enforced at the gateway", Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Documented risk-management policy (triage/methodology/license) is configured and applied to scans."
@@ -229,15 +233,25 @@ func rMeasure11(ctx ReportContext) SubcategoryMapping {
 func rMeasure21(ctx ReportContext) SubcategoryMapping {
 	m := sub("MEASURE", "MEASURE 2.1", "Risks analyzed & assessed",
 		"AI systems are evaluated and their risks analyzed and assessed.")
-	if ctx.FindingTotal == 0 {
+	if ctx.FindingTotal == 0 && ctx.AiFirewallRequestCount == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no findings were recorded to analyze."
 		m.Gaps = append(m.Gaps, "No findings found")
 		return m
 	}
-	m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FindingTotal, "finding"), Kind: "finding", Detail: "Identified risks analyzed and scored", Link: routeFindings})
+	if ctx.FindingTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FindingTotal, "finding"), Kind: "finding", Detail: "Identified risks analyzed and scored", Link: routeFindings})
+	}
 	if ctx.TriagedTotal > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.TriagedTotal, "triaged finding"), Kind: "finding", Detail: "Assessed via triage decisions", Link: routeFindings})
+	}
+	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: "Screened against guardrails: " + itoa(ctx.AiFirewallBlockCount) + " blocked, " + itoa(ctx.AiFirewallRedactCount) + " redacted, " + itoa(ctx.AiFirewallFlagCount) + " flagged", Link: routeAiFirewall})
+	}
+	if ctx.FindingTotal == 0 {
+		m.Status = StatusPartial
+		m.Rationale = "Runtime inferences are measured against guardrails; no static findings were recorded to analyze."
+		return m
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Risks are analyzed and assessed via scored, triaged findings across the reporting period."
@@ -264,7 +278,7 @@ func rMeasure31(ctx ReportContext) SubcategoryMapping {
 func rManage11(ctx ReportContext) SubcategoryMapping {
 	m := sub("MANAGE", "MANAGE 1.3", "Risk treatment prioritized",
 		"Responses to high-priority AI risks are developed, planned and documented.")
-	treated := ctx.AffectedTotal + ctx.FixedTotal + ctx.OpenVexCount + ctx.SuppressionCount
+	treated := ctx.AffectedTotal + ctx.FixedTotal + ctx.OpenVexCount + ctx.SuppressionCount + ctx.AiFirewallBlockCount + ctx.AiFirewallRedactCount
 	if treated == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no risk-treatment records (triage outcomes, VEX, suppressions) found."
@@ -279,6 +293,9 @@ func rManage11(ctx ReportContext) SubcategoryMapping {
 	}
 	if ctx.SuppressionCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Documented risk-acceptance decisions"})
+	}
+	if n := ctx.AiFirewallBlockCount + ctx.AiFirewallRedactCount; n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(n, "gateway intervention"), Kind: "policy", Detail: itoa(ctx.AiFirewallBlockCount) + " blocked and " + itoa(ctx.AiFirewallRedactCount) + " redacted inference(s) — automated risk treatment at runtime", Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Risk treatment is documented via remediations, VEX statements and risk-acceptance records."
@@ -308,13 +325,18 @@ func rManage21(ctx ReportContext) SubcategoryMapping {
 func rManage41(ctx ReportContext) SubcategoryMapping {
 	m := sub("MANAGE", "MANAGE 4.1", "Post-deployment monitoring",
 		"Post-deployment monitoring plans are implemented, capturing and evaluating changes.")
-	if ctx.IngestionSnapshotCount <= 1 && ctx.ScannerRunCount <= 1 {
+	if ctx.IngestionSnapshotCount <= 1 && ctx.ScannerRunCount <= 1 && ctx.AiFirewallRequestCount <= 1 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no recurring assessment history yet."
 		m.Gaps = append(m.Gaps, "No monitoring history")
 		return m
 	}
-	m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring post-deployment monitoring", Link: routeScans})
+	if ctx.ScannerRunCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring post-deployment monitoring", Link: routeScans})
+	}
+	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: "Runtime AI usage monitored at the gateway over the period", Link: routeAiFirewall})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Recurring assessments implement post-deployment monitoring across the period."
 	return m
