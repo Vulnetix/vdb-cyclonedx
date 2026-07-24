@@ -84,10 +84,10 @@ func TestReportAiFirewallSignals(t *testing.T) {
 	}
 }
 
-func TestReportSixCategories(t *testing.T) {
+func TestReportSevenCategories(t *testing.T) {
 	cats := MapReport(euaiact.ReportContext{})
-	if len(cats) != 6 {
-		t.Fatalf("want 6 categories, got %d", len(cats))
+	if len(cats) != 7 {
+		t.Fatalf("want 7 categories, got %d", len(cats))
 	}
 	for _, c := range cats {
 		for _, ctl := range c.Controls {

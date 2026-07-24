@@ -11,13 +11,17 @@ package euaiact
 
 // Product route paths for evidence links (stable vdb-* pages).
 const (
-	routeFindings   = "/vdb-findings"
-	routeScans      = "/vdb-scanner-results"
-	routeInventory  = "/vdb-ai-inventory"
-	routeCrypto     = "/vdb-crypto-inventory"
-	routeUploads    = "/vdb-uploads"
-	routeLicenses   = "/vdb-licenses"
-	routeAiFirewall = "/vdb-ai-firewall"
+	routeFindings     = "/vdb-findings"
+	routeScans        = "/vdb-scanner-results"
+	routeInventory    = "/vdb-ai-inventory"
+	routeCrypto       = "/vdb-crypto-inventory"
+	routeUploads      = "/vdb-uploads"
+	routeLicenses     = "/vdb-licenses"
+	routeAiFirewall   = "/vdb-ai-firewall"
+	routeRiskStrategy = "/vdb-risk-strategy"
+	routePolicies     = "/vdb-suppression-policies"
+	routeGate         = "/vdb-quality-gate"
+	routeLogs         = "/vdb-logs"
 )
 
 // ReportContext is the aggregated, source-agnostic evidence view for one
@@ -51,16 +55,29 @@ type ReportContext struct {
 
 	// Test/eval + continuous monitoring.
 	ScannerRunCount        int
-	ScannerRunCategories   []string
-	IngestionSnapshotCount int // per-run history rows (monitoring over time)
+	ScannerRunCategories   []string       // distinct ScannerRun.category in scope
+	ScannerRunByCategory   map[string]int // ScannerRun.category → run count
+	SnapshotByCategory     map[string]int // IngestionSnapshot.category → snapshot count
+	ScannerToolNames       []string       // distinct tool names that produced runs
+	ScannerRepoCount       int            // distinct repos with at least one run
+	LastScanAt             int64          // most recent ScannerRun.createdAt (ms)
+	IngestionSnapshotCount int            // per-run history rows (monitoring over time)
 	HasEvaluation          bool
+
+	// Snapshot rollup — the triage pipeline's own per-run accounting summed
+	// over the period. This is the audit trail of *how* every ingested finding
+	// was disposed of, not just the current posture.
+	Snapshot SnapshotRollup
 
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
 
 	// Event logging.
-	AccessLogCount int
+	AccessLogCount        int
+	AccessLogMemberCount  int // distinct identities that generated events
+	AccessLogWithIdentity int // events attributable to a member
+	AccessLogWithSource   int // events carrying a source address
 
 	// Crypto posture.
 	CbomQuantumVulnerable int
@@ -85,11 +102,220 @@ type ReportContext struct {
 	AiFirewallBlockCount          int            // decision=block in period
 	AiFirewallRedactCount         int            // decision=redact in period
 	AiFirewallFlagCount           int            // decision=flag in period
+
+	// ── Risk-based remediation policy ─────────────────────────────────────
+	// The org's ordered risk-prioritization strategy: the machine-readable
+	// expression of "we rank risk this way, and remediate in that order".
+	RiskStrategyName      string
+	RiskStrategyRuleCount int
+	RiskStrategyMetrics   []string // distinct RiskMetric names the rules use
+	RiskStrategyIsCustom  bool     // org-authored, not the seeded system default
+
+	// Remediation SLAs from the active triage policy (days per severity).
+	TriagePolicyName     string
+	RemediationDaysBySev map[string]int // critical|high|medium|low
+	TriageThresholdDays  int
+	ExposureWindowDays   int
+	ThreatWindowDays     int
+
+	// ── Build-time enforcement (CLI quality gate) ─────────────────────────
+	QualityGateConfigured bool
+	QualityGateBlocks     []string // eol|malware|unpinned
+	QualityGateSeverity   string   // fail-on severity floor
+	QualityGateExploits   string   // fail-on exploit maturity floor
+	QualityGateVersionLag int
+	QualityGateCooldown   int
+	QualityGateEolTiers   map[string]string // retired|within30days|thisQuarter|nextQuarter → severity
+
+	// Observed CLI runs: how often the gate actually executed and how often it
+	// stopped a build.
+	CliRunCount        int
+	CliBreakBuildCount int // runs configured to break the build
+	CliFailedGateCount int // runs that exited non-zero
+	CliVersions        []string
+
+	// ── Change control / pre-release review ───────────────────────────────
+	SarifResultTotal    int
+	SarifResultReviewed int // reviewStatus set to something other than pending
+	DependencyTotal     int
+	DependencyReviewed  int
+
+	// ── Supply-chain provenance ───────────────────────────────────────────
+	SlsaProvenanceCount   int
+	SlsaVerifiedCount     int
+	AttestationCount      int
+	AttestationVerified   int
+	CliManifestCount      int
+	CliManifestEcosystems []string
+	CliTestConfigCount    int
+	TestFrameworks        []string
+
+	// ── Reachability analysis (exploitability qualifier) ──────────────────
+	ReachabilityTotal     int
+	ReachabilityByVerdict map[string]int // DIRECT|TRANSITIVE|SEMANTIC|UNREACHABLE
+	ReachabilityBySource  map[string]int // TREE_SITTER|SEMANTIC_GREP|SYMBOL_FALLBACK
+
+	// ── Technology currency (end-of-life) ─────────────────────────────────
+	EolFindingCount int
+	EolProducts     []string
+
+	// ── Binary integrity (container/binary hashing) ───────────────────────
+	BinaryCount        int
+	BinaryHashedCount  int // rows carrying sha256/ssdeep/tlsh fingerprints
+	BinaryMalwareCount int // MalwareBazaar hits
+
+	// ── Identity & access posture (Vulnetix platform accounts) ────────────
+	MemberCount          int
+	MfaCredentialCount   int
+	MfaMemberCount       int
+	SsoEnforced          []string // github|google|okta
+	PasswordMinLength    int
+	PasswordComplexity   []string // upper|lower|number|symbol|banned-substrings
+	PasswordReuseBlocked int
+	ServiceAccountCount  int
+	ApiKeyCount          int
+
+	// ── Data retention / secure disposal ──────────────────────────────────
+	PurgeJobCount    int
+	PurgeDeletedRows int64
+	PurgeLastAt      int64
+
+	// ── Incident response & alerting ──────────────────────────────────────
+	AlertCount         int
+	AlertByStatus      map[string]int
+	AlertByType        map[string]int
+	NotifyIntegrations []string // slack|googlechat|webhook|github|…
+
+	// ── SSVC decision records (documented decision methodology) ───────────
+	SsvcDecisionCount int
+	SsvcMethodologies []string
+}
+
+// SnapshotRollup sums IngestionSnapshot's per-run counters across the report
+// scope. Every field is an auditable record of how the triage pipeline
+// classified ingested results.
+type SnapshotRollup struct {
+	Ingested    int `json:"ingested"`
+	Prioritized int `json:"prioritized"`
+	Outcomes    int `json:"outcomes"`
+
+	SsvcAct       int `json:"ssvcAct"`
+	SsvcAttend    int `json:"ssvcAttend"`
+	SsvcTrackStar int `json:"ssvcTrackStar"`
+	SsvcTrack     int `json:"ssvcTrack"`
+
+	Suppressed                int `json:"suppressed"`
+	PatchAvailable            int `json:"patchAvailable"`
+	PatchPlannedInTolerance   int `json:"patchPlannedInTolerance"`
+	NoPatchPossibleTransitive int `json:"noPatchPossibleTransitive"`
+	PatchNotReported          int `json:"patchNotReported"`
+
+	ReportedResolved    int `json:"reportedResolved"`
+	DisappearedResolved int `json:"disappearedResolved"`
+	ResolvedByPolicy    int `json:"resolvedByPolicy"`
+
+	FpByVersion      int `json:"fpByVersion"`
+	FpByDistribution int `json:"fpByDistribution"`
+	AutoRecastScores int `json:"autoRecastScores"`
+
+	MemoryPublicFacing   int `json:"memoryPublicFacing"`
+	MemoryReachability   int `json:"memoryReachability"`
+	AttributedToTestCode int `json:"attributedToTestCode"`
+
+	InsufficientDetail   int `json:"insufficientDetail"`
+	NeedsTriageDeveloper int `json:"needsTriageDeveloper"`
+	NeedsTriageSecurity  int `json:"needsTriageSecurity"`
+
+	TicketRoutedOwner    int `json:"ticketRoutedOwner"`
+	TicketRoutedSecurity int `json:"ticketRoutedSecurity"`
+
+	DedupByIdentifier int `json:"dedupByIdentifier"`
+	DedupByAsset      int `json:"dedupByAsset"`
+	DedupByCategory   int `json:"dedupByCategory"`
+	DedupByComponent  int `json:"dedupByComponent"`
+}
+
+// Any reports whether the rollup carries any signal at all.
+func (s SnapshotRollup) Any() bool {
+	return s.Ingested+s.Prioritized+s.Outcomes+s.SsvcAct+s.SsvcAttend+s.SsvcTrackStar+s.SsvcTrack > 0
+}
+
+// SsvcTotal is the count of results that reached an SSVC decision.
+func (s SnapshotRollup) SsvcTotal() int {
+	return s.SsvcAct + s.SsvcAttend + s.SsvcTrackStar + s.SsvcTrack
+}
+
+// DedupTotal is the count of results collapsed by the dedup stages.
+func (s SnapshotRollup) DedupTotal() int {
+	return s.DedupByIdentifier + s.DedupByAsset + s.DedupByCategory + s.DedupByComponent
+}
+
+// AutoResolvedTotal is the count closed without human triage.
+func (s SnapshotRollup) AutoResolvedTotal() int {
+	return s.ReportedResolved + s.DisappearedResolved + s.ResolvedByPolicy
+}
+
+// HasRiskStrategy reports whether an ordered risk-prioritization strategy backs
+// the org's remediation ordering.
+func (c ReportContext) HasRiskStrategy() bool { return c.RiskStrategyRuleCount > 0 }
+
+// QualityGateBlockEnabled reports whether a named build-breaking toggle is on.
+func (c ReportContext) QualityGateBlockEnabled(name string) bool {
+	for _, b := range c.QualityGateBlocks {
+		if b == name {
+			return true
+		}
+	}
+	return false
+}
+
+// HasRemediationSLA reports whether per-severity remediation windows are set.
+func (c ReportContext) HasRemediationSLA() bool {
+	for _, d := range c.RemediationDaysBySev {
+		if d > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ScannerCategoryCount is the number of distinct scanner categories exercised.
+func (c ReportContext) ScannerCategoryCount() int { return len(c.ScannerRunByCategory) }
+
+// HasScannerCategory reports whether any run classified into the named
+// category (matching either the ScannerRun.category free text or the strict
+// IngestionSnapshot.category enum).
+func (c ReportContext) HasScannerCategory(names ...string) bool {
+	for _, n := range names {
+		if c.ScannerRunByCategory[n] > 0 || c.SnapshotByCategory[n] > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ScannerCategoryRuns totals runs across the named category aliases.
+func (c ReportContext) ScannerCategoryRuns(names ...string) int {
+	total := 0
+	for _, n := range names {
+		total += c.ScannerRunByCategory[n]
+		if c.ScannerRunByCategory[n] == 0 {
+			total += c.SnapshotByCategory[n]
+		}
+	}
+	return total
+}
+
+// ReachableCount is the count of findings reachability analysis did not rule
+// out (anything other than an explicit UNREACHABLE verdict).
+func (c ReportContext) ReachableCount() int {
+	return c.ReachabilityByVerdict["DIRECT"] + c.ReachabilityByVerdict["TRANSITIVE"] + c.ReachabilityByVerdict["SEMANTIC"]
 }
 
 // MapReport returns the EU AI Act article mappings for a whole report.
 func MapReport(ctx ReportContext) []ArticleMapping {
 	return []ArticleMapping{
+		reportArticle9(ctx),
 		reportArticle10(ctx),
 		reportArticle11(ctx),
 		reportArticle12(ctx),
@@ -139,6 +365,113 @@ func invLink(ctx ReportContext) string {
 		return routeInventory + "/" + ctx.LatestAibomScanUUID
 	}
 	return routeInventory
+}
+
+// reportArticle9 covers the risk-management system: a continuous, iterated
+// process that identifies risks, evaluates them, and adopts targeted measures.
+// Vulnetix evidences this directly — the risk-prioritization strategy is the
+// documented evaluation method, the triage policy sets the treatment windows,
+// and the snapshot rollup is the per-iteration record.
+func reportArticle9(ctx ReportContext) ArticleMapping {
+	m := article("Article 9", "Risk management system",
+		"A risk management system must be established, implemented, documented and maintained as a continuous iterative process across the system's lifecycle: identifying risks, estimating and evaluating them, and adopting targeted risk-management measures.")
+
+	identified := ctx.FindingTotal > 0 || ctx.ScannerRunCount > 0
+	if !identified && !ctx.HasRiskStrategy() && !ctx.HasTriagePolicy {
+		m.Status = StatusGap
+		m.Rationale = "Evaluated — no risk-identification activity, ranking strategy or remediation policy exists for the scope."
+		m.Gaps = append(m.Gaps, "No risk-management system evidence found")
+		return m
+	}
+
+	if ctx.ScannerRunCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "risk identification", Kind: "scan",
+			Detail: plural(ctx.ScannerRunCount, "assessment run") + " across " + plural(ctx.ScannerCategoryCount(), "analysis category") +
+				" identified " + plural(ctx.FindingTotal, "risk"),
+			Link: routeScans,
+		})
+	}
+	if ctx.HasRiskStrategy() {
+		scope := "the seeded system default"
+		if ctx.RiskStrategyIsCustom {
+			scope = "organization-authored"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "risk evaluation method", Kind: "policy",
+			Detail: quote(ctx.RiskStrategyName) + " (" + scope + "): " + plural(ctx.RiskStrategyRuleCount, "enabled rule") +
+				" estimate and evaluate every identified risk in a fixed, reproducible order",
+			Link: routeRiskStrategy,
+		})
+	} else {
+		m.Gaps = append(m.Gaps, "No documented risk-ranking method — risk estimation is not reproducible")
+	}
+	if ctx.HasRemediationSLA() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "targeted risk measures", Kind: "policy",
+			Detail: "Policy " + quote(ctx.TriagePolicyName) + " commits to remediation within " +
+				itoa(ctx.RemediationDaysBySev["critical"]) + "/" + itoa(ctx.RemediationDaysBySev["high"]) + "/" +
+				itoa(ctx.RemediationDaysBySev["medium"]) + "/" + itoa(ctx.RemediationDaysBySev["low"]) +
+				" days by severity, with a " + itoa(ctx.TriageThresholdDays) + "-day triage threshold",
+			Link: routePolicies,
+		})
+	} else {
+		m.Gaps = append(m.Gaps, "No per-severity remediation window — risk treatment is unbounded in time")
+	}
+	if ctx.Snapshot.Any() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "iteration record", Kind: "log",
+			Detail: itoa(ctx.Snapshot.Ingested) + " risk(s) ingested, " + itoa(ctx.Snapshot.Prioritized) + " prioritized, " +
+				itoa(ctx.Snapshot.Outcomes) + " driven to an outcome; " + itoa(ctx.Snapshot.SsvcTotal()) +
+				" carry an SSVC disposition — the per-iteration record of the process running",
+			Link: routeScans,
+		})
+	}
+	if ctx.QualityGateConfigured {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "enforced measures", Kind: "policy",
+			Detail: "Build gate blocks " + joinNames(ctx.QualityGateBlocks, "no categories") + " at severity floor " +
+				quote(ctx.QualityGateSeverity) + "; " + itoa(ctx.CliBreakBuildCount) + " of " + itoa(ctx.CliRunCount) +
+				" pipeline run(s) set to break the build",
+			Link: routeGate,
+		})
+	}
+	if ctx.AiFirewallConfigured {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "runtime measures", Kind: "policy",
+			Detail: plural(ctx.AiFirewallGuardrailCount, "guardrail") + " constrain model use at the gateway",
+			Link:   routeAiFirewall,
+		})
+	}
+
+	switch {
+	case ctx.HasRiskStrategy() && ctx.HasRemediationSLA() && identified:
+		m.Status = StatusSatisfied
+		m.Rationale = "The risk-management system is continuous and documented end to end: risks are identified by recurring assessment, evaluated by an ordered ranking strategy, and treated within committed per-severity windows."
+	case identified:
+		m.Status = StatusPartial
+		m.Rationale = "Risks are identified continuously, but the evaluation method or the treatment commitment is not fully documented."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Risk-management policy is configured, but no assessment activity in the period exercised it."
+		m.Gaps = append(m.Gaps, "No assessment runs in the period")
+	}
+	return m
+}
+
+func quote(s string) string { return `"` + s + `"` }
+
+func itoa64(n int64) string { return itoa(int(n)) }
+
+func joinNames(list []string, fallback string) string {
+	if len(list) == 0 {
+		return fallback
+	}
+	out := list[0]
+	for _, s := range list[1:] {
+		out += ", " + s
+	}
+	return out
 }
 
 func reportArticle10(ctx ReportContext) ArticleMapping {
@@ -209,7 +542,28 @@ func reportArticle12(ctx ReportContext) ArticleMapping {
 		return m
 	}
 	if ctx.AccessLogCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AccessLogCount, "access-log event"), Kind: "log", Detail: "Recorded API access events over the period"})
+		detail := "Recorded API access events over the period"
+		if ctx.AccessLogWithIdentity > 0 {
+			detail = itoa(ctx.AccessLogWithIdentity) + " of " + itoa(ctx.AccessLogCount) +
+				" event(s) attributable to a named identity across " + plural(ctx.AccessLogMemberCount, "account") +
+				"; " + itoa(ctx.AccessLogWithSource) + " carry a source address"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AccessLogCount, "access-log event"), Kind: "log", Detail: detail, Link: routeLogs})
+	}
+	if ctx.Snapshot.Any() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "assessment accounting", Kind: "log",
+			Detail: itoa(ctx.Snapshot.Ingested) + " result(s) ingested, " + itoa(ctx.Snapshot.Outcomes) +
+				" driven to an outcome, " + itoa(ctx.Snapshot.DedupTotal()) + " deduplicated — an automatic, per-run event record",
+			Link: routeScans,
+		})
+	}
+	if ctx.PurgeJobCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "retention control", Kind: "policy",
+			Detail: plural(ctx.PurgeJobCount, "data-disposal job") + " executed, removing " + itoa64(ctx.PurgeDeletedRows) +
+				" stored record(s) — logs are retained under an enforced lifecycle, not indefinitely",
+		})
 	}
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "scanner run"), Kind: "scan", Detail: "Recorded assessment runs", Link: routeScans})
@@ -286,6 +640,29 @@ func reportArticle15(ctx ReportContext) ArticleMapping {
 	}
 	if ctx.HasEvaluation {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "evaluation", Kind: "runtime", Detail: "Model evaluation/benchmark workload present", Link: invLink(ctx)})
+	}
+	if ctx.ReachabilityTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "reachability analysis", Kind: "analysis",
+			Detail: plural(ctx.ReachabilityTotal, "call-path verdict") + ": " + itoa(ctx.ReachableCount()) +
+				" reachable, " + itoa(ctx.ReachabilityByVerdict["UNREACHABLE"]) + " ruled unreachable — robustness claims are call-path evidenced",
+			Link: routeFindings,
+		})
+	}
+	if ctx.SarifResultTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "result review", Kind: "review",
+			Detail: itoa(ctx.SarifResultReviewed) + " of " + itoa(ctx.SarifResultTotal) + " analysis result(s) carry a reviewer disposition",
+			Link:   routeFindings,
+		})
+	}
+	if ctx.QualityGateConfigured && ctx.CliBreakBuildCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "build-time enforcement", Kind: "policy",
+			Detail: itoa(ctx.CliBreakBuildCount) + " of " + itoa(ctx.CliRunCount) + " pipeline run(s) set to break the build; " +
+				itoa(ctx.CliFailedGateCount) + " stopped a change from shipping",
+			Link: routeGate,
+		})
 	}
 	if ctx.AiFirewallConfigured {
 		detail := "Runtime input/output controls at the AI gateway: " + plural(ctx.AiFirewallGuardrailCount, "guardrail")

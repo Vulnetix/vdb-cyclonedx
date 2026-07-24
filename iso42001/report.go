@@ -11,18 +11,29 @@ import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
 type ReportContext = euaiact.ReportContext
 
 const (
-	routeFindings   = "/vdb-findings"
-	routeScans      = "/vdb-scanner-results"
-	routeInventory  = "/vdb-ai-inventory"
-	routeUploads    = "/vdb-uploads"
-	routeCrypto     = "/vdb-crypto-inventory"
-	routeAiFirewall = "/vdb-ai-firewall"
+	routeFindings     = "/vdb-findings"
+	routeScans        = "/vdb-scanner-results"
+	routeInventory    = "/vdb-ai-inventory"
+	routeUploads      = "/vdb-uploads"
+	routeCrypto       = "/vdb-crypto-inventory"
+	routeAiFirewall   = "/vdb-ai-firewall"
+	routeRiskStrategy = "/vdb-risk-strategy"
+	routePolicies     = "/vdb-suppression-policies"
+	routeGate         = "/vdb-quality-gate"
+	routeLogs         = "/vdb-logs"
 )
 
 // MapReport returns the Annex A control mappings for a whole report.
 func MapReport(ctx ReportContext) []CategoryMapping {
 	inv := classify(ctx.Components)
 	return []CategoryMapping{
+		{
+			Category: "A.2", Title: "Policies related to AI",
+			Description: "Documented policy for the development, provision and use of AI systems, with supporting topic-specific policies.",
+			Controls: []ControlMapping{
+				rA22(ctx),
+			},
+		},
 		{
 			Category: "A.4", Title: "Resources for AI systems",
 			Description: "The resources (data, tooling, compute) for AI systems are determined and documented.",
@@ -43,6 +54,7 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 			Description: "Design, verification, operation, documentation and event logging across the life cycle.",
 			Controls: []ControlMapping{
 				rA624(ctx),
+				rA625(ctx),
 				rA626(ctx),
 				rA627(ctx, inv),
 				rA628(ctx),
@@ -77,6 +89,96 @@ func invLink(ctx ReportContext) string {
 		return routeInventory + "/" + ctx.LatestAibomScanUUID
 	}
 	return routeInventory
+}
+
+// ── A.2 Policies ──────────────────────────────────────────────────────────────
+
+// rA22 evidences the documented policy set. Vulnetix holds the machine-readable
+// half of it: the risk-ranking strategy, the remediation SLA policy, the scoring
+// methodology, the license policy, the build gate and the runtime guardrails.
+func rA22(ctx ReportContext) ControlMapping {
+	m := ctl("A.2", "A.2.2", "AI policy",
+		"The organization documents a policy for the development or use of AI systems, supported by topic-specific policies.")
+	policies := 0
+	if ctx.HasRiskStrategy() {
+		policies++
+		scope := "system default"
+		if ctx.RiskStrategyIsCustom {
+			scope = "organization-authored"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "risk-prioritization strategy", Kind: "policy",
+			Detail: qt(ctx.RiskStrategyName) + " (" + scope + "), " + plural(ctx.RiskStrategyRuleCount, "enabled rule") +
+				" ranking vulnerability, end-of-life and malware risk in remediation order",
+			Link: routeRiskStrategy,
+		})
+	}
+	if ctx.HasRemediationSLA() {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "remediation policy", Kind: "policy",
+			Detail: qt(ctx.TriagePolicyName) + ": " + itoa(ctx.RemediationDaysBySev["critical"]) + "/" +
+				itoa(ctx.RemediationDaysBySev["high"]) + "/" + itoa(ctx.RemediationDaysBySev["medium"]) + "/" +
+				itoa(ctx.RemediationDaysBySev["low"]) + "-day remediation windows by severity",
+			Link: routePolicies,
+		})
+	} else if ctx.HasTriagePolicy {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "triage policy", Kind: "policy", Detail: "Triage policy configured", Link: routePolicies})
+	}
+	if ctx.HasMethodology {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "scoring methodology", Kind: "policy", Detail: "Decision methodology documented and field-mapped", Link: routePolicies})
+	}
+	if ctx.HasLicensePolicy {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "license policy", Kind: "policy", Detail: "Acceptable-license policy configured for third-party components", Link: routeFindings})
+	}
+	if ctx.QualityGateConfigured {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "build-time policy", Kind: "policy",
+			Detail: "Gate blocks " + names(ctx.QualityGateBlocks, "no categories") + " at severity floor " + qt(ctx.QualityGateSeverity) +
+				" and exploit maturity " + qt(ctx.QualityGateExploits),
+			Link: routeGate,
+		})
+	}
+	if ctx.AiFirewallConfigured {
+		policies++
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "runtime AI policy", Kind: "policy",
+			Detail: plural(ctx.AiFirewallGuardrailCount, "guardrail") + " plus " +
+				plural(ctx.AiFirewallProviderPolicyCount+ctx.AiFirewallModelPolicyCount, "provider/model policy") + " enforced at the gateway",
+			Link: routeAiFirewall,
+		})
+	}
+	switch {
+	case policies == 0:
+		m.Status = StatusGap
+		m.Rationale = "Evaluated — no machine-readable policy (risk ranking, remediation SLA, methodology, license, build gate or runtime guardrails) is configured."
+		m.Gaps = append(m.Gaps, "No topic-specific AI policies configured")
+	case policies >= 4:
+		m.Status = StatusSatisfied
+		m.Rationale = plural(policies, "topic-specific policy") + " is configured and enforced against real activity, evidencing a documented policy set."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = plural(policies, "topic-specific policy") + " is configured; the overarching AI policy document itself is human-authored — attach it as manual evidence."
+		m.Gaps = append(m.Gaps, "Overarching AI policy document not held by Vulnetix")
+	}
+	return m
+}
+
+func qt(s string) string { return `"` + s + `"` }
+
+func names(list []string, fallback string) string {
+	if len(list) == 0 {
+		return fallback
+	}
+	out := list[0]
+	for _, s := range list[1:] {
+		out += ", " + s
+	}
+	return out
 }
 
 // ── A.4 Resources ─────────────────────────────────────────────────────────────
@@ -137,6 +239,29 @@ func rA52(ctx ReportContext, inv inventory) ControlMapping {
 	for _, mdl := range inv.models {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: mdl.Name, Kind: "model", Detail: "AI system requiring impact assessment", Link: invLink(ctx)})
 	}
+	// The ranking strategy is the repeatable estimation method the assessment
+	// process needs; without it, impact severity is a per-case judgement call.
+	if ctx.HasRiskStrategy() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "impact estimation method", Kind: "policy",
+			Detail: qt(ctx.RiskStrategyName) + ": " + plural(ctx.RiskStrategyRuleCount, "enabled rule") +
+				" evaluate every identified risk consistently, so impact severity is reproducible rather than ad hoc",
+			Link: routeRiskStrategy,
+		})
+	} else {
+		m.Gaps = append(m.Gaps, "No documented ranking method — impact estimation is not reproducible")
+	}
+	if ctx.SsvcDecisionCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SsvcDecisionCount, "SSVC decision record"), Kind: "policy",
+			Detail: "Recorded decision inputs and outcomes per assessed risk", Link: routeFindings,
+		})
+	}
+	if ctx.HasRiskStrategy() && ctx.FindingTotal > 0 {
+		m.Status = StatusPartial
+		m.Rationale = "A reproducible estimation method is applied to identified risks; the organizational impact assessment (affected persons, societal effects) remains a human process — attach it as manual evidence."
+		return m
+	}
 	m.Status = StatusInformational
 	m.Rationale = "The inventory and findings provide impact-assessment inputs; a formal impact assessment is a human process — attach it as manual evidence."
 	return m
@@ -159,8 +284,90 @@ func rA624(ctx ReportContext) ControlMapping {
 	if ctx.HasEvaluation {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "evaluation", Kind: "runtime", Detail: "Model evaluation workload present", Link: invLink(ctx)})
 	}
+	// Verification is only as strong as its breadth and whether its results were
+	// looked at — cite both rather than the bare run count.
+	if ctx.ScannerCategoryCount() > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "verification breadth", Kind: "scan",
+			Detail: plural(ctx.ScannerCategoryCount(), "analysis category") + " exercised (" + names(ctx.ScannerRunCategories, "uncategorized") +
+				") across " + plural(ctx.ScannerRepoCount, "repository"),
+			Link: routeScans,
+		})
+	}
+	if ctx.CliTestConfigCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "test configuration", Kind: "provenance",
+			Detail: plural(ctx.CliTestConfigCount, "test configuration") + " detected (" + names(ctx.TestFrameworks, "unclassified frameworks") + ")",
+			Link:   routeScans,
+		})
+	}
+	if ctx.SarifResultTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "result review", Kind: "review",
+			Detail: itoa(ctx.SarifResultReviewed) + " of " + itoa(ctx.SarifResultTotal) + " analysis result(s) carry a reviewer disposition",
+			Link:   routeFindings,
+		})
+	}
+	if ctx.ReachabilityTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "reachability analysis", Kind: "analysis",
+			Detail: plural(ctx.ReachabilityTotal, "call-path verdict") + ": " + itoa(ctx.ReachableCount()) + " reachable, " +
+				itoa(ctx.ReachabilityByVerdict["UNREACHABLE"]) + " ruled unreachable",
+			Link: routeFindings,
+		})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "The AI/software is verified and validated by recurring automated assessment runs."
+	return m
+}
+
+// rA625 covers controlled deployment: the build gate is the machine record that
+// a release was allowed or refused against declared criteria.
+func rA625(ctx ReportContext) ControlMapping {
+	m := ctl("A.6", "A.6.2.5", "AI system deployment",
+		"The AI system is deployed under a controlled process against defined acceptance criteria.")
+	if !ctx.QualityGateConfigured && ctx.CliRunCount == 0 {
+		m.Status = StatusGap
+		m.Rationale = "Evaluated — no deployment gate is configured and no pipeline-triggered assessment ran, so releases carry no recorded acceptance decision."
+		m.Gaps = append(m.Gaps, "No build-time deployment gate")
+		return m
+	}
+	if ctx.QualityGateConfigured {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "acceptance criteria", Kind: "policy",
+			Detail: "Blocks " + names(ctx.QualityGateBlocks, "no categories") + "; severity floor " + qt(ctx.QualityGateSeverity) +
+				", exploit maturity " + qt(ctx.QualityGateExploits) + ", version lag " + itoa(ctx.QualityGateVersionLag),
+			Link: routeGate,
+		})
+	}
+	if ctx.CliRunCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "deployment decisions", Kind: "scan",
+			Detail: plural(ctx.CliRunCount, "pipeline assessment") + "; " + itoa(ctx.CliBreakBuildCount) +
+				" set to break the build and " + itoa(ctx.CliFailedGateCount) + " refused a release",
+			Link: routeScans,
+		})
+	}
+	if len(ctx.CliVersions) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "toolchain version control", Kind: "provenance",
+			Detail: "Assessments ran on " + names(ctx.CliVersions, "an unrecorded version"),
+			Link:   routeScans,
+		})
+	}
+	switch {
+	case ctx.QualityGateConfigured && ctx.CliBreakBuildCount > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Deployment is gated: acceptance criteria are declared and enforced, and refusals are recorded."
+	case ctx.QualityGateConfigured:
+		m.Status = StatusPartial
+		m.Rationale = "Acceptance criteria are declared, but no assessment in the period was set to block a release — the gate is advisory in practice."
+		m.Gaps = append(m.Gaps, "Gate configured but not enforcing")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Assessments run in the pipeline, but no acceptance criteria are declared for them to enforce."
+		m.Gaps = append(m.Gaps, "No declared acceptance criteria")
+	}
 	return m
 }
 
@@ -224,7 +431,21 @@ func rA628(ctx ReportContext) ControlMapping {
 		return m
 	}
 	if ctx.AccessLogCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AccessLogCount, "access-log event"), Kind: "log", Detail: "API access events recorded"})
+		detail := "API access events recorded"
+		if ctx.AccessLogWithIdentity > 0 {
+			detail = itoa(ctx.AccessLogWithIdentity) + " of " + itoa(ctx.AccessLogCount) + " event(s) attributable to a named identity across " +
+				plural(ctx.AccessLogMemberCount, "account") + "; " + itoa(ctx.AccessLogWithSource) + " carry a source address"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AccessLogCount, "access-log event"), Kind: "log", Detail: detail, Link: routeLogs})
+	}
+	if ctx.Snapshot.Any() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "assessment accounting", Kind: "log",
+			Detail: itoa(ctx.Snapshot.Ingested) + " ingested, " + itoa(ctx.Snapshot.Prioritized) + " prioritized, " +
+				itoa(ctx.Snapshot.Outcomes) + " driven to an outcome; " + itoa(ctx.Snapshot.DedupTotal()) + " deduplicated, " +
+				itoa(ctx.Snapshot.AutoResolvedTotal()) + " auto-resolved",
+			Link: routeScans,
+		})
 	}
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Assessment events recorded", Link: routeScans})

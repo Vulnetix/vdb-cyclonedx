@@ -11,11 +11,16 @@ import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
 type ReportContext = euaiact.ReportContext
 
 const (
-	routeFindings   = "/vdb-findings"
-	routeScans      = "/vdb-scanner-results"
-	routeInventory  = "/vdb-ai-inventory"
-	routeAiFirewall = "/vdb-ai-firewall"
+	routeFindings     = "/vdb-findings"
+	routeScans        = "/vdb-scanner-results"
+	routeInventory    = "/vdb-ai-inventory"
+	routeAiFirewall   = "/vdb-ai-firewall"
+	routeRiskStrategy = "/vdb-risk-strategy"
+	routePolicies     = "/vdb-suppression-policies"
+	routeGate         = "/vdb-quality-gate"
 )
+
+func quoted(s string) string { return `"` + s + `"` }
 
 // MapReport returns the AI RMF function mappings for a whole report.
 func MapReport(ctx ReportContext) []FunctionMapping {
@@ -94,7 +99,34 @@ func rGovern31(ctx ReportContext) SubcategoryMapping {
 		return m
 	}
 	if ctx.HasTriagePolicy {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: "triage policy", Kind: "policy", Detail: "SLA/remediation risk policy configured"})
+		detail := "SLA/remediation risk policy configured"
+		if ctx.HasRemediationSLA() {
+			detail = "Policy " + quoted(ctx.TriagePolicyName) + ": remediation windows " +
+				itoa(ctx.RemediationDaysBySev["critical"]) + "/" + itoa(ctx.RemediationDaysBySev["high"]) + "/" +
+				itoa(ctx.RemediationDaysBySev["medium"]) + "/" + itoa(ctx.RemediationDaysBySev["low"]) +
+				" days (critical/high/medium/low), " + itoa(ctx.TriageThresholdDays) + "-day triage threshold"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "triage policy", Kind: "policy", Detail: detail, Link: routePolicies})
+	}
+	// The ordered risk-prioritization strategy is the executable procedure: it
+	// decides which AI-related risk is treated first, and it is auditable.
+	if ctx.HasRiskStrategy() {
+		scope := "system default"
+		if ctx.RiskStrategyIsCustom {
+			scope = "organization-authored"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "risk-prioritization strategy", Kind: "policy",
+			Detail: quoted(ctx.RiskStrategyName) + " (" + scope + "), " + plural(ctx.RiskStrategyRuleCount, "enabled rule") +
+				" ranking vulnerability, end-of-life and malware risk in remediation order",
+			Link: routeRiskStrategy,
+		})
+	}
+	if ctx.SsvcDecisionCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SsvcDecisionCount, "SSVC decision record"), Kind: "policy",
+			Detail: "Each prioritization call is reproducible from its recorded inputs", Link: routeFindings,
+		})
 	}
 	if ctx.HasMethodology {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "scoring methodology", Kind: "policy", Detail: "SSVC/scoring decision methodology configured"})
@@ -225,9 +257,38 @@ func rMeasure11(ctx ReportContext) SubcategoryMapping {
 	if ctx.HasEvaluation {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "evaluation", Kind: "runtime", Detail: "Model evaluation workload present", Link: invLink(ctx)})
 	}
+	// Naming the methods matters more than the run count: a measurement program
+	// is only as broad as the analysis categories it actually exercises.
+	if ctx.ScannerCategoryCount() > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "measurement breadth", Kind: "scan",
+			Detail: plural(ctx.ScannerCategoryCount(), "analysis category") + " exercised (" + joinStrings(ctx.ScannerRunCategories) +
+				") across " + plural(ctx.ScannerRepoCount, "repository") + " by " + plural(len(ctx.ScannerToolNames), "distinct tool"),
+			Link: routeScans,
+		})
+	}
+	if ctx.ReachabilityTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "reachability analysis", Kind: "analysis",
+			Detail: plural(ctx.ReachabilityTotal, "call-path verdict") + ": " + itoa(ctx.ReachableCount()) + " reachable, " +
+				itoa(ctx.ReachabilityByVerdict["UNREACHABLE"]) + " ruled unreachable",
+			Link: routeFindings,
+		})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Automated measurement methods (security scanning, evaluation) are applied across the period."
 	return m
+}
+
+func joinStrings(list []string) string {
+	out := ""
+	for i, s := range list {
+		if i > 0 {
+			out += ", "
+		}
+		out += s
+	}
+	return out
 }
 
 func rMeasure21(ctx ReportContext) SubcategoryMapping {
@@ -268,6 +329,17 @@ func rMeasure31(ctx ReportContext) SubcategoryMapping {
 		return m
 	}
 	m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.IngestionSnapshotCount, "assessment snapshot"), Kind: "scan", Detail: "Risk posture tracked over time", Link: routeScans})
+	// The snapshot rollup is the per-run accounting behind the trend: what was
+	// ingested, what was closed, and why.
+	if ctx.Snapshot.Any() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "disposition accounting", Kind: "log",
+			Detail: itoa(ctx.Snapshot.Ingested) + " ingested → " + itoa(ctx.Snapshot.Prioritized) + " prioritized → " +
+				itoa(ctx.Snapshot.Outcomes) + " outcome(s); " + itoa(ctx.Snapshot.AutoResolvedTotal()) + " auto-resolved, " +
+				itoa(ctx.Snapshot.DedupTotal()) + " deduplicated, " + itoa(ctx.Snapshot.SsvcTotal()) + " SSVC-classified",
+			Link: routeScans,
+		})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Repeated assessment snapshots track how AI risks change over the period."
 	return m
@@ -296,6 +368,23 @@ func rManage11(ctx ReportContext) SubcategoryMapping {
 	}
 	if n := ctx.AiFirewallBlockCount + ctx.AiFirewallRedactCount; n > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(n, "gateway intervention"), Kind: "policy", Detail: itoa(ctx.AiFirewallBlockCount) + " blocked and " + itoa(ctx.AiFirewallRedactCount) + " redacted inference(s) — automated risk treatment at runtime", Link: routeAiFirewall})
+	}
+	// Prioritization is what makes treatment "high-priority first" rather than
+	// arbitrary; the build gate is what stops an untreated risk from shipping.
+	if ctx.HasRiskStrategy() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "risk-prioritization strategy", Kind: "policy",
+			Detail: quoted(ctx.RiskStrategyName) + " orders treatment across " + plural(ctx.RiskStrategyRuleCount, "enabled rule"),
+			Link:   routeRiskStrategy,
+		})
+	}
+	if ctx.QualityGateConfigured && ctx.CliBreakBuildCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "build-time gate", Kind: "policy",
+			Detail: itoa(ctx.CliBreakBuildCount) + " of " + itoa(ctx.CliRunCount) + " pipeline run(s) set to break the build; " +
+				itoa(ctx.CliFailedGateCount) + " stopped a change",
+			Link: routeGate,
+		})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Risk treatment is documented via remediations, VEX statements and risk-acceptance records."
