@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  VULNETIX_VERSION: v3.73.0
+  VULNETIX_VERSION: latest
 jobs:
   gosec:
     name: gosec (Go SAST)
