@@ -257,7 +257,10 @@ type aibomComp struct {
 	Group              string          `json:"group,omitempty"`
 	Publisher          string          `json:"publisher,omitempty"`
 	Description        string          `json:"description,omitempty"`
+	Scope              string          `json:"scope,omitempty"`
 	Purl               string          `json:"purl,omitempty"`
+	Hashes             []aibomHash     `json:"hashes,omitempty"`
+	Licenses           []aibomLicense  `json:"licenses,omitempty"`
 	Authors            []aibomContact  `json:"authors,omitempty"`
 	ExternalReferences []aibomExtRef   `json:"externalReferences,omitempty"`
 	Properties         []aibomProp     `json:"properties,omitempty"`
@@ -266,6 +269,21 @@ type aibomComp struct {
 	// "cryptographic-asset" components; the AIBOM builder never sets it
 	// (omitempty keeps it absent from AIBOM output).
 	CryptoProperties *cdxCryptoProperties `json:"cryptoProperties,omitempty"`
+}
+
+type aibomHash struct {
+	Alg     string `json:"alg"`
+	Content string `json:"content"`
+}
+
+type aibomLicense struct {
+	License    *aibomLicenseData `json:"license,omitempty"`
+	Expression string            `json:"expression,omitempty"`
+}
+
+type aibomLicenseData struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 type aibomContact struct {
