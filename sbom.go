@@ -101,11 +101,25 @@ type SBOMPackage struct {
 	Properties        map[string]string
 }
 
+// SBOMDependency is one edge set in the CycloneDX dependency graph: the
+// component identified by Ref depends on every bom-ref in DependsOn. Refs that
+// do not resolve to a component in the finished document are dropped, so a
+// caller may pass a graph derived from lockfile edges without pre-filtering it.
+type SBOMDependency struct {
+	Ref       string
+	DependsOn []string
+}
+
 // SBOMInventory is the complete input to BuildSBOM.
 type SBOMInventory struct {
 	Packages         []SBOMPackage
 	AIDetections     *AIDetections
 	CryptoDetections *CryptoDetections
+	// Dependencies carries a resolved dependency graph (typically from lockfile
+	// or installed-tree edges). It is merged with the project→direct-dependency
+	// edges BuildSBOM derives from SBOMPackage.IsDirect. Use "urn:project" to
+	// attach edges to the metadata component.
+	Dependencies []SBOMDependency
 }
 
 // SBOMOptions configures BuildSBOM.
@@ -115,6 +129,12 @@ type SBOMOptions struct {
 	ToolVersion string        // default "cli"
 	GeneratedAt string        // RFC3339; default time.Now().UTC()
 	Project     *AIBOMProject // nil -> minimal project component
+	// CanonicalSPDXID optionally resolves a license string to its canonical
+	// SPDX identifier, returning "" when the value is not a recognised id. When
+	// set, recognised values are emitted as `license.id` (the enum-constrained
+	// field) instead of the free-text `license.name`. Callers that have no SPDX
+	// table leave it nil, which keeps every license value free text.
+	CanonicalSPDXID func(string) string
 }
 
 // BuildSBOM maps a package inventory plus optional AIBOM/CBOM detections into a
@@ -169,7 +189,7 @@ func BuildSBOMDocument(inv SBOMInventory, opts SBOMOptions) any {
 	deps := map[string][]string{}
 	componentIndex := map[string]int{}
 	for _, pkg := range inv.Packages {
-		comp := sbomPackageComponent(pkg)
+		comp := sbomPackageComponent(pkg, opts.CanonicalSPDXID)
 		if comp.Name == "" {
 			continue
 		}
@@ -207,11 +227,18 @@ func BuildSBOMDocument(inv SBOMInventory, opts SBOMOptions) any {
 		}
 	}
 
+	// Caller-supplied graph edges last: buildDeps drops refs that never became a
+	// component, so an edge naming a package this document does not carry (a
+	// lockfile entry filtered out upstream) is discarded rather than dangling.
+	for _, dep := range inv.Dependencies {
+		deps[dep.Ref] = append(deps[dep.Ref], dep.DependsOn...)
+	}
+
 	doc.Dependencies = buildDeps(deps, validRefs)
 	return doc
 }
 
-func sbomPackageComponent(pkg SBOMPackage) aibomComp {
+func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) aibomComp {
 	purl := pkg.Purl
 	if purl == "" {
 		purl = SBOMPurl(pkg.Name, pkg.Version, pkg.Ecosystem)
@@ -289,7 +316,7 @@ func sbomPackageComponent(pkg SBOMPackage) aibomComp {
 		}
 	}
 	for _, lic := range pkg.Licenses {
-		if lc := licenseChoice(lic); lc.License != nil || lc.Expression != "" {
+		if lc := licenseChoiceWith(lic, canonicalSPDXID); lc.License != nil || lc.Expression != "" {
 			comp.Licenses = append(comp.Licenses, lc)
 		}
 	}
@@ -655,10 +682,19 @@ func mergeProps(dst, src []aibomProp) []aibomProp {
 	return dst
 }
 
-func licenseChoice(value string) aibomLicense {
+// licenseChoiceWith maps a license string to a schema-valid CycloneDX license
+// choice. Only license.id is enum-constrained, so a value is emitted there only
+// when canonicalSPDXID recognises it; everything else becomes an expression (for
+// compound SPDX) or a free-text name.
+func licenseChoiceWith(value string, canonicalSPDXID func(string) string) aibomLicense {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.EqualFold(value, "UNKNOWN") {
 		return aibomLicense{}
+	}
+	if canonicalSPDXID != nil {
+		if canon := canonicalSPDXID(value); canon != "" {
+			return aibomLicense{License: &aibomLicenseData{ID: canon}}
+		}
 	}
 	upper := strings.ToUpper(value)
 	if strings.Contains(upper, " OR ") || strings.Contains(upper, " AND ") || strings.Contains(upper, " WITH ") {
