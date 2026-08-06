@@ -238,7 +238,11 @@ type aibomMetadata struct {
 	Lifecycles []aibomLifecycle `json:"lifecycles,omitempty"`
 	Tools      *aibomTools      `json:"tools,omitempty"`
 	Component  *aibomComp       `json:"component,omitempty"`
-	Properties []aibomProp      `json:"properties,omitempty"`
+	// Authors names who is making the claims in this document. It matters most
+	// for VEX, where every statement is an assertion by somebody and a document
+	// that does not say who asserted it is worth less than one that does.
+	Authors    []aibomContact `json:"authors,omitempty"`
+	Properties []aibomProp    `json:"properties,omitempty"`
 }
 
 type aibomLifecycle struct {
