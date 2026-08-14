@@ -163,6 +163,14 @@ type ReportContext struct {
 	CodeReviewPullRequests     int // distinct pull requests reviewed
 	CodeReviewReviewers        int // distinct reviewers
 	CodeReviewReposCovered     int // distinct in-scope repos with a review
+	// CodeReviewIndependent is approvals whose reviewer is not the pull
+	// request's author. PCI DSS 6.2.3 does not ask whether code was reviewed —
+	// it asks whether it was reviewed "by individuals other than the
+	// originating code author", and that is the part a self-approval fails.
+	CodeReviewIndependent int
+	// CodeReviewSelfApproved is approvals by the author of the change. Reported
+	// rather than hidden: it is the number an assessor samples.
+	CodeReviewSelfApproved int
 
 	// GitHub secret-scanning alerts, from GitHubSecretScanningAlert. Detection
 	// by a second, independent tool plus a recorded resolution — which is
