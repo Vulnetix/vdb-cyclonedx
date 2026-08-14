@@ -251,6 +251,18 @@ type ReportContext struct {
 	// already stored, and no control read it — so ISO A.5.23 evidenced cloud
 	// security from IaC scan counts while a vendor's framework attribution sat
 	// unused beside it.
+	// Alert disposition detail, from MissionControlAlert's attribution columns.
+	//
+	// The status bucket alone cannot separate an alert a person acknowledged
+	// from one that aged out, or an alert resolved from one *dismissed* without
+	// action — and dismissal is the weakening action here, the same shape as a
+	// bypassed push protection or a deactivated firewall entry. `dueDate` gives
+	// the overdue count, which the disposition split cannot express at all.
+	AlertsAcknowledged  int
+	AlertsAcknowledgers int
+	AlertsDismissed     int
+	AlertsOverdue       int
+
 	// Human curation of malware determinations, from MalwareCurationAudit:
 	// analysts marking a detection a false positive, retracting that, or adding
 	// and removing indicators — with the actor and the reason.
