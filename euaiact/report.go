@@ -101,6 +101,22 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// Repository insights. Not another finding source: a measurement, its
+	// formula, the ladder that classified it, and a pointer to every item
+	// behind the number. InsightsMetric.definition is the formula verbatim and
+	// evidenceCompleteness says whether the evidence is exhaustive or was
+	// truncated — which is the difference between complete and partial evidence
+	// stated by the schema rather than inferred by a report.
+	InsightsRunCount         int
+	InsightsRepoCount        int
+	InsightsMetricCount      int
+	InsightsMetricsDefined   int // carry the formula and its cutoffs verbatim
+	InsightsMetricsMeasured  int // a value was actually produced (NULL is not zero)
+	InsightsMetricsTruncated int
+	InsightsEvidenceCount    int
+	InsightsOmittedCount     int
+	InsightsFamilies         []string
+
 	// SBOM coverage. A document count answers "does an SBOM exist"; controls
 	// that ask for a *maintained inventory* need the denominator and the age.
 	// SbomRepoCount is repositories with any SBOM on record, SbomRepoInPeriod
