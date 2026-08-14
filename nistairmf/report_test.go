@@ -201,3 +201,82 @@ func TestReportManage43NeedsRealChangeTracking(t *testing.T) {
 		t.Error("MANAGE 4.3 promoted above gap while citing nothing")
 	}
 }
+
+// TestNoSubcategoryIsCappedBelowSatisfied guards F-062. GOVERN 6.1 and MAP 4.1
+// terminated at partial unconditionally, so no organization could satisfy them
+// whatever it configured -- and the signals that should have lifted them (the
+// AI firewall's provider/model allow-deny rows; a configured licence policy)
+// were sitting unread on the context, already consulted by sibling frameworks.
+//
+// A permanently-unreachable status is invisible: it looks exactly like a
+// condition that merely happens not to be met.
+func TestNoSubcategoryIsCappedBelowSatisfied(t *testing.T) {
+	// Everything on at once. Any subcategory that still cannot reach satisfied
+	// or not-applicable under this input is capped by construction.
+	ctx := richCtx()
+	ctx.ScannerRepoCount = 9
+	ctx.HasLicensePolicy = true
+	ctx.AiFirewallConfigured = true
+	ctx.AiFirewallLogsEnabled = true
+	ctx.AiFirewallGuardrailCount = 4
+	ctx.AiFirewallEnforcingGuardrails = 4
+	ctx.AiFirewallProviderPolicyCount = 3
+	ctx.AiFirewallModelPolicyCount = 2
+	ctx.AiFirewallRequestCount = 5000
+	ctx.PriorScanCount = 12
+	ctx.AccessLogCount = 3084
+	ctx.CycloneDXCount = 378
+	ctx.SsvcDecisionCount = 40
+	ctx.RiskStrategyName = "default"
+	ctx.RiskStrategyRuleCount = 22
+
+	// MAP 1.1 and MANAGE 4.3 cap at partial on purpose: each carries a second
+	// obligation (the requirements for the intended purpose; communicating
+	// incidents to stakeholders) that no artifact evidences. MAP 5.1 is
+	// not-applicable by construction. Those are documented ceilings, not
+	// accidents, so they are listed rather than silently tolerated.
+	deliberate := map[string]bool{"MAP 1.1": true, "MANAGE 4.3": true, "MAP 5.1": true}
+
+	for _, fn := range MapReport(ctx) {
+		for _, sc := range fn.Subcategories {
+			if deliberate[sc.ID] {
+				continue
+			}
+			if sc.Status != StatusSatisfied && sc.Status != StatusNotApplicable {
+				t.Errorf("%s = %s under maximal input; it cannot be satisfied by any organization", sc.ID, sc.Status)
+			}
+		}
+	}
+}
+
+func TestGovern61ReadsTheProviderPolicyItAsksAbout(t *testing.T) {
+	ctx := richCtx()
+	if s := findSubR(MapReport(ctx), "GOVERN 6.1").Status; s != StatusPartial {
+		t.Errorf("GOVERN 6.1 with no provider policy = %s, want partial", s)
+	}
+
+	ctx.AiFirewallProviderPolicyCount = 2
+	sc := findSubR(MapReport(ctx), "GOVERN 6.1")
+	if sc.Status != StatusSatisfied {
+		t.Errorf("GOVERN 6.1 with a provider allow/deny policy = %s, want satisfied", sc.Status)
+	}
+	if len(sc.Evidence) == 0 {
+		t.Error("GOVERN 6.1 satisfied while citing nothing")
+	}
+}
+
+func TestMap41ReadsTheLicencePolicyItAsksAbout(t *testing.T) {
+	ctx := richCtx()
+	if s := findSubR(MapReport(ctx), "MAP 4.1").Status; s != StatusPartial {
+		t.Errorf("MAP 4.1 with no licence policy = %s, want partial", s)
+	}
+
+	ctx.HasLicensePolicy = true
+	sc := findSubR(MapReport(ctx), "MAP 4.1")
+	if sc.Status != StatusSatisfied {
+		t.Errorf("MAP 4.1 with a licence policy = %s, want satisfied", sc.Status)
+	}
+	if len(sc.Evidence) == 0 {
+		t.Error("MAP 4.1 satisfied while citing nothing")
+	}
+}

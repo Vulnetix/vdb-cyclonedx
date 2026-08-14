@@ -78,7 +78,7 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 			Subcategories: []SubcategoryMapping{
 				rManage11(ctx),
 				rManage21(ctx),
-				manage31(inv),
+				rManage31(ctx, inv),
 				rManage41(ctx),
 				rManage43(ctx, inv),
 			},
@@ -180,8 +180,29 @@ func rGovern61(ctx ReportContext, inv inventory) SubcategoryMapping {
 	if n := ctx.FindingByCategory["sca"]; n > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(n, "SCA finding"), Kind: "finding", Detail: "Third-party dependency risks identified", Link: routeFindings})
 	}
+
+	// This terminated at partial unconditionally, so no organization could ever
+	// satisfy it — while the AI firewall's provider and model allow/deny rows
+	// are literally a policy addressing which third-party AI may be used, and
+	// both sibling frameworks already read them. The subcategory asks for
+	// policies that address third-party AI risk; an enforced allow/deny list is
+	// one, so satisfied is now reachable on real configuration.
+	policies := ctx.AiFirewallProviderPolicyCount + ctx.AiFirewallModelPolicyCount
+	if policies > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(policies, "provider/model policy"), Kind: "policy",
+			Detail: "Allow/deny rules governing which third-party AI providers and models may be used",
+			Link:   routeAiFirewall,
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Third-party AI is inventoried and scanned, and an enforced allow/deny policy governs which providers and models may be used."
+
+		return m
+	}
+
 	m.Status = StatusPartial
-	m.Rationale = "Third-party AI and dependency risks are inventoried and scanned; policy adherence is a governance activity beyond the inventory."
+	m.Rationale = "Third-party AI and dependency risks are inventoried and scanned, but no policy governs which providers or models may be used."
+	m.Gaps = append(m.Gaps, "No provider or model allow/deny policy is configured")
 	return m
 }
 
@@ -256,8 +277,25 @@ func rMap41(ctx ReportContext, inv inventory) SubcategoryMapping {
 	if n := ctx.FindingByCategory["license"]; n > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(n, "license finding"), Kind: "finding", Detail: "License/IP legal risks identified", Link: routeFindings})
 	}
+
+	// Also terminated at partial unconditionally. The subcategory asks whether
+	// an *approach* for mapping legal and IP risk is in place — a configured
+	// licence policy is exactly that, and it was sitting unread on the context.
+	if ctx.HasLicensePolicy {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Licence policy", Kind: "policy",
+			Detail: "A configured licence policy is the documented approach for mapping IP and legal risk in third-party software",
+			Link:   routePolicies,
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Third-party providers and legal/licence risks are mapped from the inventory and scans, against a configured licence policy."
+
+		return m
+	}
+
 	m.Status = StatusPartial
-	m.Rationale = "Third-party providers and legal/license risks are mapped from the inventory and scans."
+	m.Rationale = "Third-party providers and legal/licence risks are mapped from the inventory and scans, but no licence policy states how they are to be judged."
+	m.Gaps = append(m.Gaps, "No licence policy configured, so there is no documented approach for judging IP and legal risk")
 	return m
 }
 
@@ -462,6 +500,37 @@ func rManage41(ctx ReportContext) SubcategoryMapping {
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Recurring assessments implement post-deployment monitoring across the period."
+	return m
+}
+
+// rManage31 is the report-scoped twin of manage31.
+//
+// The per-scan version terminates at partial, correctly: one scan evidences the
+// monitoring half of the subcategory and nothing about applied risk controls.
+// Over a report the AI firewall's enforcing guardrails and provider/model
+// allow-deny rows are exactly those controls, so the second half becomes
+// evidenceable and the ceiling comes off.
+func rManage31(ctx ReportContext, inv inventory) SubcategoryMapping {
+	m := manage31(inv)
+	if m.Status == StatusNotApplicable {
+		return m
+	}
+
+	controls := ctx.AiFirewallEnforcingGuardrails + ctx.AiFirewallProviderPolicyCount + ctx.AiFirewallModelPolicyCount
+	if controls == 0 {
+		m.Gaps = append(m.Gaps, "No enforcing guardrail or provider/model policy is applied to third-party AI")
+
+		return m
+	}
+
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: plural(controls, "applied control"), Kind: "policy",
+		Detail: "Enforcing guardrails and provider/model allow-deny rules applied to third-party AI at the gateway",
+		Link:   routeAiFirewall,
+	})
+	m.Status = StatusSatisfied
+	m.Rationale = "Third-party AI resources are inventoried and re-inventoried each scan, and risk controls are applied to them at the gateway."
+
 	return m
 }
 
