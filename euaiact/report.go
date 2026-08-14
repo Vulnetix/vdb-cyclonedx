@@ -101,6 +101,13 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// SBOM coverage. A document count answers "does an SBOM exist"; controls
+	// that ask for a *maintained inventory* need the denominator and the age.
+	// SbomRepoCount is repositories with any SBOM on record, SbomRepoInPeriod
+	// those whose most recent SBOM falls inside the reporting period, both
+	// against ScannerRepoCount.
+	SbomRepoCount    int
+	SbomRepoInPeriod int
 
 	// Event logging.
 	AccessLogCount        int
