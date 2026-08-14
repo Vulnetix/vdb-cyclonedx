@@ -101,6 +101,20 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// What the organization actually publishes to consumers, from the TEA
+	// publisher tables. Artifact.signature* covers documents this platform
+	// holds; these are the formats a consumer downloads, with the signature,
+	// certificate chain and transparency-log entry offered alongside them.
+	PublishedFormatTotal    int
+	PublishedFormatChecksum int
+	PublishedFormatSigned   int
+	PublishedFormatWitness  int // signature carries a transparency-log URL
+	PublishedFormatCertHain int // signature carries a certificate chain
+	PublishedSignatureTypes []string
+
+	// CycloneDX 1.6 definitions: the standards a BOM asserts conformance to.
+	SbomWithDefinitions int
+
 	// Suppression governance. A suppression is a risk acceptance: who made it,
 	// why, when it is reviewed and when it lapses are the difference between an
 	// accepted risk and a silenced one. All four columns are stored.
