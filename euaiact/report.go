@@ -104,6 +104,16 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// A disposition with a person attached. "Reviewed" spans a status a
+	// pipeline set and a decision a named reviewer recorded, and only the
+	// second answers a control asking for human review.
+	SarifResultReviewedBy int
+	// SSVC decisions split by who made them. The engine records decisions too,
+	// so counting every row as a recorded decision credited the organization
+	// with judgement the product exercised on its behalf.
+	SsvcDecisionByHuman int
+	SsvcSources         []string
+
 	// Who holds what access on the source repositories themselves. Platform
 	// roles describe access to the reports; these describe access to the code.
 	CollaboratorTotal     int
