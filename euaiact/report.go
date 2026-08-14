@@ -101,6 +101,14 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// Who holds what access on the source repositories themselves. Platform
+	// roles describe access to the reports; these describe access to the code.
+	CollaboratorTotal     int
+	CollaboratorAdmin     int
+	CollaboratorWrite     int
+	CollaboratorReposSeen int
+	CollaboratorRoles     []string
+
 	// How secret-scanning alerts were closed, and who overrode the guard.
 	// "Resolved" spans revoking a live credential and deciding not to act on
 	// one, which are opposite claims about the same leak.
