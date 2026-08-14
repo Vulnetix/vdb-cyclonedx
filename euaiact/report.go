@@ -304,6 +304,21 @@ type ReportContext struct {
 	NotificationFailed    int
 	NotificationProviders []string
 
+	// Deployment provenance and configuration drift, from CloudResource.
+	//
+	// `stackDriftStatus` is the running estate compared against its declared
+	// infrastructure — the monitoring half of ISO A.8.9, which asks that
+	// configurations be established, documented, implemented **and monitored**.
+	// A.8.9 evidenced the first three from IaC findings and never the fourth,
+	// so an estate that had drifted from its own templates read the same as one
+	// that had not. `sourceCommitSha` and `deployedByArn` tie a running
+	// resource to the commit and the principal that produced it, which is what
+	// change-management controls mean by traceability.
+	CloudResourceTotal     int
+	CloudResourceDrifted   int
+	CloudResourceWithSha   int
+	CloudResourceWithActor int
+
 	// The deployed, internet-facing attack surface: resources with a traced
 	// path from an ingress (load balancer, API gateway, public subnet) to the
 	// resource itself, with the reachable ports.
