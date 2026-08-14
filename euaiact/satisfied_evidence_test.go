@@ -79,6 +79,38 @@ func scenarios() map[string]euaiact.ReportContext {
 		}
 	}
 
+	// The same generalisation along the other dimensions these builders read.
+	// The inventory sweep above found two unreported defects on its first run;
+	// the shape it exploits — a guard that admits several kinds while the
+	// emitters cover some of them — is not specific to inventories.
+	for _, cat := range []string{
+		"sast", "sca", "secrets", "iac", "container", "oci",
+		"malware", "license", "cloud", "infra",
+	} {
+		out["scans-only-"+cat] = euaiact.ReportContext{
+			ScannerRunCount:      4,
+			ScannerRunCategories: []string{cat},
+			ScannerRunByCategory: map[string]int{cat: 4},
+			FindingTotal:         3,
+			FindingByCategory:    map[string]int{cat: 3},
+		}
+	}
+	for _, sev := range []string{"critical", "high", "medium", "low", "unknown"} {
+		out["findings-only-"+sev] = euaiact.ReportContext{
+			ScannerRunCount:   2,
+			FindingTotal:      5,
+			FindingBySeverity: map[string]int{sev: 5},
+		}
+	}
+	for name, ctx := range map[string]euaiact.ReportContext{
+		"disposition-all-not-affected":        {FindingTotal: 6, NotAffectedTotal: 6, TriagedTotal: 6},
+		"disposition-all-fixed":               {FindingTotal: 6, FixedTotal: 6, TriagedTotal: 6},
+		"disposition-all-under-investigation": {FindingTotal: 6, UnderInvestigationTotal: 6, TriagedTotal: 6},
+		"disposition-none-triaged":            {FindingTotal: 6},
+	} {
+		out[name] = ctx
+	}
+
 	return out
 }
 
