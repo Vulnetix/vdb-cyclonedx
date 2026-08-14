@@ -245,6 +245,17 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// Cloud posture from Wiz, including the control-framework mapping Wiz
+	// supplies with each issue. That mapping is an independent third party
+	// tying a cloud finding to the very standards these reports cover, it is
+	// already stored, and no control read it — so ISO A.5.23 evidenced cloud
+	// security from IaC scan counts while a vendor's framework attribution sat
+	// unused beside it.
+	CloudIssueTotal     int
+	CloudIssueOpen      int
+	CloudIssueMapped    int // issues carrying a security-framework attribution
+	CloudFrameworkNames []string
+
 	// CycloneDX 1.6 attestation payloads. `declarations` carries conformance
 	// claims with their evidence and signatories; `formulation` records how the
 	// component was built. Both are machine-readable compliance evidence the
