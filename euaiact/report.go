@@ -172,6 +172,19 @@ type ReportContext struct {
 	// rather than hidden: it is the number an assessor samples.
 	CodeReviewSelfApproved int
 
+	// SonarQube findings. A second, independent static-analysis tool whose
+	// results were read by no report — so every "analysis breadth" and
+	// "no weaknesses observed" claim rested on Vulnetix's own SARIF alone,
+	// understating the assurance actually performed.
+	//
+	// SonarqubeFinding carries orgId and createdAt but no repository, so these
+	// are organisation-wide even on a repo-scoped report. Controls citing them
+	// must say so rather than let the number read as scoped.
+	SonarFindingTotal int
+	SonarFindingOpen  int
+	SonarBlockerHigh  int // blocker/critical severity, still open
+	SonarRuleTypes    []string
+
 	// GitHub secret-scanning alerts, from GitHubSecretScanningAlert. Detection
 	// by a second, independent tool plus a recorded resolution — which is
 	// stronger evidence for a secrets control than Vulnetix's own scan count.
