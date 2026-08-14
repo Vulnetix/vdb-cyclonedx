@@ -9,7 +9,10 @@ package euaiact
 // one-line "no evidence found"); controls that cannot be evaluated from
 // available data return StatusNotApplicable with the reason.
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Product route paths for evidence links (stable vdb-* pages).
 const (
@@ -970,9 +973,22 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 		})
 	}
 	if ctx.AiFirewallConfigured {
+		// A guardrail set to *flag* observes; only block and redact constrain.
+		// Counting every enabled guardrail as constraining model use made an
+		// observing gateway read like an enforcing one, which is the
+		// configured-versus-operating error this report keeps making.
+		detail := plural(ctx.AiFirewallEnforcingGuardrails, "guardrail") +
+			" block or redact at the gateway, out of " + plural(ctx.AiFirewallGuardrailCount, "enabled guardrail")
+		if len(ctx.AiFirewallGuardrailsByType) > 0 {
+			detail += " (" + joinNames(guardrailTypes(ctx.AiFirewallGuardrailsByType), "types not recorded") + ")"
+		}
+		if ctx.AiFirewallEnforcingGuardrails == 0 {
+			detail = plural(ctx.AiFirewallGuardrailCount, "guardrail") +
+				" are enabled but none blocks or redacts — the gateway observes model use rather than constraining it"
+		}
 		m.Evidence = append(m.Evidence, EvidenceItem{
 			Component: "runtime measures", Kind: "policy",
-			Detail: plural(ctx.AiFirewallGuardrailCount, "guardrail") + " constrain model use at the gateway",
+			Detail: detail,
 			Link:   routeAiFirewall,
 		})
 	}
@@ -1003,6 +1019,22 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 func quote(s string) string { return `"` + s + `"` }
 
 func itoa64(n int64) string { return itoa(int(n)) }
+
+// guardrailTypes renders the enabled-guardrail histogram as sorted
+// "type xN" labels, so a reader sees what kind of constraint is in force
+// rather than a single total.
+func guardrailTypes(byType map[string]int) []string {
+	out := make([]string, 0, len(byType))
+	for k, n := range byType {
+		if k == "" || n == 0 {
+			continue
+		}
+		out = append(out, k+" x"+itoa(n))
+	}
+	sort.Strings(out)
+
+	return out
+}
 
 func joinNames(list []string, fallback string) string {
 	if len(list) == 0 {
@@ -1150,7 +1182,14 @@ func reportArticle14(ctx ReportContext) ArticleMapping {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Human risk-acceptance decisions"})
 	}
 	if ctx.AiFirewallGuardrailCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy", Detail: "Human-defined runtime constraints (blocked patterns / PII redaction / message limits) enforced on every gateway inference", Link: routeAiFirewall})
+		// Human oversight means a human-defined rule that *acts*. Saying every
+		// enabled guardrail is "enforced on every inference" described a
+		// flag-only gateway as an enforcing one.
+		detail := "Human-defined runtime constraints, " + itoa(ctx.AiFirewallEnforcingGuardrails) + " of them blocking or redacting on every gateway inference"
+		if ctx.AiFirewallEnforcingGuardrails == 0 {
+			detail = "Human-defined runtime constraints, none of which blocks or redacts — the gateway observes model use rather than constraining it"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy", Detail: detail, Link: routeAiFirewall})
 	}
 	if len(agents) > 0 && !ctx.AiFirewallConfigured {
 		m.Gaps = append(m.Gaps, "Detected autonomous agents have no runtime gateway/guardrails")
