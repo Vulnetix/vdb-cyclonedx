@@ -245,6 +245,17 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// Native code-host detectors. Two more independent analyses whose results
+	// the reports never counted, so every analysis-breadth claim understated
+	// the assurance actually performed — the same defect as the unread
+	// SonarQube findings, in two more tools.
+	CodeQLAlertTotal     int
+	CodeQLAlertOpen      int
+	CodeQLHighSeverity   int // open alerts at high or critical security severity
+	DependabotAlertTotal int
+	DependabotAlertOpen  int
+	DependabotAlertCrit  int // open alerts at critical severity
+	DependabotEcosystems []string
 	// SecretAlertBypassed counts alerts that exist because someone was warned a
 	// commit contained a secret and pushed it anyway. A preventive control
 	// being *overridden* is among the strongest things an assessor can be
