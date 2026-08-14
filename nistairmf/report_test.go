@@ -111,3 +111,93 @@ func TestReportEmptyIsGapNotPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestReportCoversEverySubcategoryWithAMapper(t *testing.T) {
+	fns := MapReport(richCtx())
+
+	seen := map[string]bool{}
+	for _, f := range fns {
+		for _, sc := range f.Subcategories {
+			if seen[sc.ID] {
+				t.Errorf("%s emitted twice", sc.ID)
+			}
+			seen[sc.ID] = true
+		}
+	}
+
+	// These five had working mappers in nistairmf.go that MapReport never
+	// called, so the report covered less of the framework than a single scan
+	// did — while running against strictly more evidence.
+	for _, id := range []string{"GOVERN 6.2", "MAP 1.1", "MAP 5.1", "MANAGE 3.1", "MANAGE 4.3"} {
+		if !seen[id] {
+			t.Errorf("%s has a mapper but is not emitted by the report path", id)
+		}
+	}
+	if len(seen) != 17 {
+		t.Errorf("subcategories = %d, want 17", len(seen))
+	}
+
+	// The report path must never cover less than the per-scan path.
+	perScan := map[string]bool{}
+	for _, f := range Map(Scan{}, richCtx().Components) {
+		for _, sc := range f.Subcategories {
+			perScan[sc.ID] = true
+		}
+	}
+	for id := range perScan {
+		if !seen[id] {
+			t.Errorf("%s is emitted per-scan but dropped by the report, which sees more evidence", id)
+		}
+	}
+}
+
+func TestReportSummaryCarriesTheFrameworkDenominator(t *testing.T) {
+	s := SummarizeReport(MapReport(richCtx()))
+
+	if s.FrameworkTotal != FrameworkSubcategories {
+		t.Errorf("FrameworkTotal = %d, want %d — without it a partial mapping reads as strong coverage", s.FrameworkTotal, FrameworkSubcategories)
+	}
+	if s.Subcategories >= s.FrameworkTotal {
+		t.Errorf("mapped %d of %d: the mapped count must stay below the framework total or the disclosure is wrong", s.Subcategories, s.FrameworkTotal)
+	}
+}
+
+func TestReportMap11CapsAtPartial(t *testing.T) {
+	// Both context signals present. MAP 1.1 also requires the requirements for
+	// the intended purpose, which no artifact states, so satisfied must be
+	// unreachable — a green chip here would claim a human wrote something.
+	ctx := richCtx()
+	ctx.ScannerRepoCount = 9
+	sc := findSubR(MapReport(ctx), "MAP 1.1")
+
+	if sc.Status != StatusPartial {
+		t.Errorf("MAP 1.1 with task + setting = %s, want partial", sc.Status)
+	}
+	if len(sc.Evidence) != 2 {
+		t.Errorf("MAP 1.1 evidence = %d, want 2 (declared task and deployment setting)", len(sc.Evidence))
+	}
+
+	// No AI at all is not-applicable, not a failure.
+	if s := findSubR(MapReport(euaiact.ReportContext{}), "MAP 1.1").Status; s != StatusNotApplicable {
+		t.Errorf("MAP 1.1 with no AI = %s, want not-applicable", s)
+	}
+}
+
+func TestReportManage43NeedsRealChangeTracking(t *testing.T) {
+	// One inventory, no AI-authored commits: nothing evidences change tracking.
+	one := euaiact.ReportContext{Components: richCtx().Components, AibomScanCount: 1}
+	if s := findSubR(MapReport(one), "MANAGE 4.3").Status; s != StatusGap {
+		t.Errorf("MANAGE 4.3 with a single inventory = %s, want gap", s)
+	}
+
+	// Repeated inventories evidence half of the subcategory. The other half is
+	// stakeholder communication, which no artifact shows, so it stays partial.
+	many := euaiact.ReportContext{Components: richCtx().Components, AibomScanCount: 12}
+	sc := findSubR(MapReport(many), "MANAGE 4.3")
+	if sc.Status != StatusPartial {
+		t.Errorf("MANAGE 4.3 with repeated inventories = %s, want partial", sc.Status)
+	}
+	if len(sc.Evidence) == 0 {
+		t.Error("MANAGE 4.3 promoted above gap while citing nothing")
+	}
+}

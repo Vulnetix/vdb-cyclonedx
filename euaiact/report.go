@@ -571,8 +571,14 @@ func reportArticle12(ctx ReportContext) ArticleMapping {
 	if ctx.AibomScanCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AibomScanCount, "AI-BOM scan"), Kind: "provenance", Detail: "Inventory revisions recorded over time", Link: routeInventory})
 	}
-	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)", Link: routeAiFirewall})
+	// A counter that can clear this article's guard must also be able to emit
+	// evidence, or the article reports satisfied citing nothing.
+	if ctx.AiFirewallRequestCount > 0 {
+		detail := "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)"
+		if !ctx.AiFirewallLogsEnabled {
+			detail = "Gateway inference volume observed; per-inference logging is currently disabled"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: detail, Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Events are automatically recorded (access logs, assessment runs and inventory revisions) across the reporting period."
@@ -772,6 +778,11 @@ func reportArticle72(ctx ReportContext) ArticleMapping {
 	}
 	if ctx.PriorScanCount > 1 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.PriorScanCount, "AI-BOM scan"), Kind: "provenance", Detail: "AI inventory regenerated over time", Link: routeInventory})
+	}
+	// ScannerRunCount alone can clear this article's guard, so it must be able
+	// to carry the claim too.
+	if ctx.ScannerRunCount > 1 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Repeated assessment of the estate over the period", Link: routeScans})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Repeated assessments and inventory revisions across the period evidence systematic post-market monitoring."

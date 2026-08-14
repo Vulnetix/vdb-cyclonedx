@@ -33,15 +33,23 @@ func MapReport(ctx ReportContext) []FunctionMapping {
 				rGovern16(ctx, inv),
 				rGovern31(ctx),
 				rGovern61(ctx, inv),
+				// Implemented for the per-scan mapper and never called here, so
+				// the report — which sees strictly more evidence — covered less
+				// of the framework than a single scan did.
+				govern62(inv),
 			},
 		},
 		{
 			Function: "MAP", Title: "Map",
 			Description: "AI systems are categorized; context, capabilities, provenance and risks are mapped.",
 			Subcategories: []SubcategoryMapping{
+				rMap11(ctx, inv),
 				rMap21(ctx, inv),
 				rMap22(inv),
 				rMap41(ctx, inv),
+				// Not evidenceable, and emitted as such: a subcategory absent
+				// from the report cannot be graded and nothing says it is gone.
+				map51(),
 			},
 		},
 		{
@@ -59,7 +67,9 @@ func MapReport(ctx ReportContext) []FunctionMapping {
 			Subcategories: []SubcategoryMapping{
 				rManage11(ctx),
 				rManage21(ctx),
+				manage31(inv),
 				rManage41(ctx),
+				rManage43(ctx, inv),
 			},
 		},
 	}
@@ -350,7 +360,10 @@ func rMeasure31(ctx ReportContext) SubcategoryMapping {
 func rManage11(ctx ReportContext) SubcategoryMapping {
 	m := sub("MANAGE", "MANAGE 1.3", "Risk treatment prioritized",
 		"Responses to high-priority AI risks are developed, planned and documented.")
-	treated := ctx.AffectedTotal + ctx.FixedTotal + ctx.OpenVexCount + ctx.SuppressionCount + ctx.AiFirewallBlockCount + ctx.AiFirewallRedactCount
+	// AffectedTotal is findings triaged as *affected* — confirmed vulnerable
+	// and not remediated. Counting them as risk treatment meant 500 confirmed,
+	// untreated findings scored "Risk treatment prioritized" as satisfied.
+	treated := ctx.FixedTotal + ctx.OpenVexCount + ctx.SuppressionCount + ctx.AiFirewallBlockCount + ctx.AiFirewallRedactCount
 	if treated == 0 {
 		m.Status = StatusGap
 		m.Rationale = "Evaluated — no risk-treatment records (triage outcomes, VEX, suppressions) found."
@@ -420,14 +433,109 @@ func rManage41(ctx ReportContext) SubcategoryMapping {
 		m.Gaps = append(m.Gaps, "No monitoring history")
 		return m
 	}
+	// Every counter that can clear the guard above must also be able to emit
+	// evidence, or the subcategory reports satisfied citing nothing. Snapshots
+	// were the missing one.
+	if ctx.IngestionSnapshotCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.IngestionSnapshotCount, "assessment snapshot"), Kind: "scan", Detail: "Risk posture recorded over time", Link: routeScans})
+	}
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring post-deployment monitoring", Link: routeScans})
 	}
-	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: "Runtime AI usage monitored at the gateway over the period", Link: routeAiFirewall})
+	if ctx.AiFirewallRequestCount > 0 {
+		detail := "Runtime AI usage monitored at the gateway over the period"
+		if !ctx.AiFirewallLogsEnabled {
+			detail = "Gateway inference volume observed; per-inference logging is currently disabled"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: detail, Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Recurring assessments implement post-deployment monitoring across the period."
+	return m
+}
+
+// rMap11 is the report-scoped twin of map11. The per-scan version reads
+// hasProvenance(scan) and scan.RepoName; over a period the equivalent signals
+// are the scan count and the repos actually covered, which is strictly more
+// context than one scan carries.
+func rMap11(ctx ReportContext, inv inventory) SubcategoryMapping {
+	m := sub("MAP", "MAP 1.1", "Context & intended purpose",
+		"Intended purpose, setting and requirements for the AI system are understood and documented.")
+	if len(inv.all) == 0 {
+		m.Status = StatusNotApplicable
+		m.Rationale = "No AI components were detected in scope, so there is no intended purpose to document."
+		return m
+	}
+
+	tasks := 0
+	for _, mdl := range inv.models {
+		if mdl.Task != "" {
+			tasks++
+		}
+	}
+	if ctx.ScannerRepoCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRepoCount, "repository"), Kind: "provenance", Detail: "Deployment setting: the codebases the AI is used in", Link: routeScans})
+	}
+	if tasks > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(tasks, "model"), Kind: "model", Detail: "Declare a task (chat/embedding/…), indicating intended purpose", Link: invLink(ctx)})
+	}
+
+	// Both signals describe the setting, never the requirements — those are
+	// written by a human. Satisfied is deliberately unreachable here; the
+	// ceiling is partial, and it is stated rather than left to be inferred.
+	switch {
+	case tasks > 0 && ctx.ScannerRepoCount > 0:
+		m.Status = StatusPartial
+		m.Rationale = "The inventory documents both the declared purpose of the models and the setting they run in. The requirements for that purpose are a human statement the inventory cannot make."
+	case tasks > 0 || ctx.ScannerRepoCount > 0:
+		m.Status = StatusPartial
+		m.Rationale = "Part of the context is documented by the inventory; declared model tasks and deployment setting together give a fuller picture, and the requirements themselves remain a human statement."
+	default:
+		m.Status = StatusInformational
+		m.Rationale = "AI components are inventoried, but none declares a task and no deployment setting is recorded, so the inventory evidences nothing about intended purpose."
+		m.Gaps = append(m.Gaps, "No model declares a task, and no deployment setting is recorded")
+	}
+	return m
+}
+
+// rManage43 is the report-scoped twin of manage43. scan.PriorScanCount becomes
+// the period's re-inventory history; the AI-authored-commit signal is the same.
+func rManage43(ctx ReportContext, inv inventory) SubcategoryMapping {
+	m := sub("MANAGE", "MANAGE 4.3", "Incidents & changes tracked",
+		"Incidents and errors are communicated to relevant stakeholders; changes to the AI system are tracked.")
+	if len(inv.all) == 0 {
+		m.Status = StatusNotApplicable
+		m.Rationale = "No AI components were detected in scope, so there are no AI changes to track."
+		return m
+	}
+
+	revisions := ctx.AibomScanCount
+	if ctx.PriorScanCount > revisions {
+		revisions = ctx.PriorScanCount
+	}
+	if inv.aiAuthored > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(inv.aiAuthored, "component"), Kind: "log", Detail: "Change history via AI-authored commits — a tracked record of AI-driven changes", Link: invLink(ctx)})
+	}
+	if revisions > 1 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(revisions, "inventory revision"), Kind: "provenance", Detail: "AI inventory re-taken over the period, tracking what changed", Link: routeInventory})
+	}
+
+	// Communication to stakeholders is never observed, so this caps at partial
+	// even with both change-tracking signals present — the subcategory is two
+	// obligations and Vulnetix evidences one.
+	switch {
+	case inv.aiAuthored > 0 && revisions > 1:
+		m.Status = StatusPartial
+		m.Rationale = "Changes to the AI in use are tracked both by AI-authored commit history and by repeated inventory revisions. Communicating incidents and errors to stakeholders is a human process no artifact evidences."
+	case inv.aiAuthored > 0 || revisions > 1:
+		m.Status = StatusPartial
+		m.Rationale = "Some change tracking is evidenced (commit history or repeated inventories). The other half of this subcategory — communicating incidents to stakeholders — is not evidenced by any artifact."
+		m.Gaps = append(m.Gaps, "Only one of the two change-tracking signals is present")
+	default:
+		m.Status = StatusGap
+		m.Rationale = "Evaluated — the AI inventory was taken once and no AI-authored commit history was found, so no change tracking is evidenced for the period."
+		m.Gaps = append(m.Gaps, "No repeated AI inventory and no AI-authored commit history")
+	}
 	return m
 }
 

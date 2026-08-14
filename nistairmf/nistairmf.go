@@ -64,6 +64,12 @@ type FunctionMapping struct {
 }
 
 // Summary is an at-a-glance posture over all subcategories.
+// FrameworkSubcategories is the number of subcategories in the NIST AI RMF 1.0
+// core, across GOVERN, MAP, MEASURE and MANAGE. It is the honest denominator: a
+// reader told "12 of 17 satisfied" with no reference to this number reads a
+// partial mapping as strong coverage of the framework.
+const FrameworkSubcategories = 72
+
 type Summary struct {
 	Framework     string `json:"framework"`
 	Satisfied     int    `json:"satisfied"`
@@ -72,6 +78,9 @@ type Summary struct {
 	Informational int    `json:"informational"`
 	NotApplicable int    `json:"notApplicable"`
 	Subcategories int    `json:"subcategories"`
+	// FrameworkTotal carries FrameworkSubcategories so consumers can state the
+	// mapped fraction without hard-coding the framework's size themselves.
+	FrameworkTotal int `json:"frameworkTotal"`
 }
 
 // Map returns the AI RMF function mappings for one AI-BOM scan. Deterministic
@@ -122,7 +131,7 @@ func Map(scan Scan, comps []Component) []FunctionMapping {
 
 // SummarizeFunctions rolls all subcategories into a Summary.
 func SummarizeFunctions(fns []FunctionMapping) Summary {
-	s := Summary{Framework: Framework}
+	s := Summary{Framework: Framework, FrameworkTotal: FrameworkSubcategories}
 	for _, f := range fns {
 		for _, sc := range f.Subcategories {
 			s.Subcategories++

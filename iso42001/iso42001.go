@@ -62,6 +62,12 @@ type CategoryMapping struct {
 	Controls    []ControlMapping `json:"controls"`
 }
 
+// AnnexATotal is the number of controls in ISO/IEC 42001:2023 Annex A, across
+// the nine control objectives A.2 to A.10. It is the honest denominator: a
+// reader told "14 of 18 satisfied" with no reference to this number reads a
+// partial mapping as full coverage of the standard.
+const AnnexATotal = 38
+
 // Summary is an at-a-glance posture over all controls.
 type Summary struct {
 	Framework     string `json:"framework"`
@@ -71,6 +77,9 @@ type Summary struct {
 	Informational int    `json:"informational"`
 	NotApplicable int    `json:"notApplicable"`
 	Controls      int    `json:"controls"`
+	// AnnexAControls carries AnnexATotal so consumers can state the mapped
+	// fraction without hard-coding the standard's size themselves.
+	AnnexAControls int `json:"annexAControls"`
 }
 
 // Map returns the Annex A control mappings for one AI-BOM scan.
@@ -133,7 +142,7 @@ func Map(scan Scan, comps []Component) []CategoryMapping {
 
 // SummarizeCategories rolls all controls into a Summary.
 func SummarizeCategories(cats []CategoryMapping) Summary {
-	s := Summary{Framework: Framework}
+	s := Summary{Framework: Framework, AnnexAControls: AnnexATotal}
 	for _, c := range cats {
 		for _, ctl := range c.Controls {
 			s.Controls++
@@ -227,6 +236,30 @@ func hasMethod(c Component, m string) bool {
 		}
 	}
 	return false
+}
+
+// ── A.3 Internal organization ─────────────────────────────────────────────────
+//
+// Neither control is artifact-backed: both describe an organizational
+// arrangement, not a property of a system Vulnetix can observe. They are
+// emitted as not-applicable with a stated reason rather than omitted, because a
+// category absent from the report cannot be graded and nothing tells the reader
+// it is missing — the whole objective simply vanishes from Annex A.
+
+func a32() ControlMapping {
+	m := ctl("A.3", "A.3.2", "AI roles and responsibilities",
+		"Roles and responsibilities for the AI management system are defined and allocated.")
+	m.Status = StatusNotApplicable
+	m.Rationale = "Role allocation is an organizational arrangement recorded outside the system; an AI inventory observes what runs, not who is accountable for it."
+	return m
+}
+
+func a33() ControlMapping {
+	m := ctl("A.3", "A.3.3", "Reporting of concerns",
+		"A process to report concerns about the organization's role with respect to an AI system is defined.")
+	m.Status = StatusNotApplicable
+	m.Rationale = "A concern-reporting process is a human procedure; no scan artifact evidences that one exists or that it is used."
+	return m
 }
 
 // ── A.4 Resources ─────────────────────────────────────────────────────────────

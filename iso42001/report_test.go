@@ -84,16 +84,52 @@ func TestReportAiFirewallSignals(t *testing.T) {
 	}
 }
 
-func TestReportSevenCategories(t *testing.T) {
+func TestReportCategoriesAndControls(t *testing.T) {
 	cats := MapReport(euaiact.ReportContext{})
-	if len(cats) != 7 {
-		t.Fatalf("want 7 categories, got %d", len(cats))
+
+	// Was 7 categories / 12 controls. A.3 and A.8 were missing entirely and six
+	// controls that already had mappers were never called from this path, so the
+	// report covered less of Annex A than a single scan did. Every control still
+	// has to carry a status — an unevidenced control is fine, a blank one is not.
+	if len(cats) != 9 {
+		t.Fatalf("want 9 categories, got %d", len(cats))
 	}
+
+	seen := map[string]bool{}
 	for _, c := range cats {
 		for _, ctl := range c.Controls {
 			if ctl.Status == "" {
 				t.Errorf("%s empty status", ctl.ID)
 			}
+			if seen[ctl.ID] {
+				t.Errorf("%s emitted twice", ctl.ID)
+			}
+			seen[ctl.ID] = true
 		}
+	}
+
+	for _, id := range []string{"A.4.5", "A.5.4", "A.6.2.3", "A.7.5", "A.8.3", "A.10.2"} {
+		if !seen[id] {
+			t.Errorf("%s has a mapper but is not emitted by the report path", id)
+		}
+	}
+	// A.3 is entirely un-evidenceable, so it is emitted as not-applicable with a
+	// stated reason. Silently dropping it made Annex A appear to begin at A.4.
+	for _, id := range []string{"A.3.2", "A.3.3"} {
+		if !seen[id] {
+			t.Errorf("%s is absent; a category the report cannot evidence must still be declared, not omitted", id)
+		}
+	}
+	if len(seen) != 20 {
+		t.Errorf("controls = %d, want 20", len(seen))
+	}
+
+	// The denominator the summary carries has to be the standard's, not ours.
+	s := SummarizeReport(cats)
+	if s.AnnexAControls != AnnexATotal {
+		t.Errorf("summary AnnexAControls = %d, want %d — without it a partial mapping reads as full coverage", s.AnnexAControls, AnnexATotal)
+	}
+	if s.Controls >= s.AnnexAControls {
+		t.Errorf("mapped %d of %d: the mapped count must stay below the Annex A total or the disclosure is wrong", s.Controls, s.AnnexAControls)
 	}
 }

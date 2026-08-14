@@ -35,11 +35,26 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 			},
 		},
 		{
+			// Wholly not-applicable, and said so on the page. Omitting it left
+			// Annex A looking like it starts at A.4.
+			Category: "A.3", Title: "Internal organization",
+			Description: "Roles, responsibilities and reporting arrangements for the AI management system.",
+			Controls: []ControlMapping{
+				a32(),
+				a33(),
+			},
+		},
+		{
 			Category: "A.4", Title: "Resources for AI systems",
 			Description: "The resources (data, tooling, compute) for AI systems are determined and documented.",
+			// a45 maps the same inventory this path already builds. It was
+			// implemented for the per-scan mapper and never called here, so the
+			// report — which has strictly more evidence — covered less of Annex
+			// A than a single scan did.
 			Controls: []ControlMapping{
 				rA42(ctx, inv),
 				rA44(ctx, inv),
+				a45(inv),
 			},
 		},
 		{
@@ -47,12 +62,17 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 			Description: "Processes to assess the consequences of AI systems.",
 			Controls: []ControlMapping{
 				rA52(ctx, inv),
+				// Emitted as not-applicable with a stated reason rather than
+				// omitted: a control absent from the report cannot be graded,
+				// and nothing tells the reader it is missing.
+				a54(),
 			},
 		},
 		{
 			Category: "A.6", Title: "AI system life cycle",
 			Description: "Design, verification, operation, documentation and event logging across the life cycle.",
 			Controls: []ControlMapping{
+				a623(inv),
 				rA624(ctx),
 				rA625(ctx),
 				rA626(ctx),
@@ -65,6 +85,17 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 			Description: "Data used to develop and operate AI systems, including provenance.",
 			Controls: []ControlMapping{
 				rA72(ctx, inv),
+				a75(inv),
+			},
+		},
+		{
+			// A.8 was absent from the report path entirely, though a83 was
+			// already written. An omitted category is worse than an unevidenced
+			// one: it cannot be graded and nothing says it is missing.
+			Category: "A.8", Title: "Information for interested parties",
+			Description: "Information about the AI system is available to the parties that need it.",
+			Controls: []ControlMapping{
+				a83(inv),
 			},
 		},
 		{
@@ -78,6 +109,7 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 			Category: "A.10", Title: "Third-party relationships",
 			Description: "AI-related risks from suppliers and third parties are managed.",
 			Controls: []ControlMapping{
+				a102(inv),
 				rA103(ctx, inv),
 			},
 		},
@@ -380,11 +412,20 @@ func rA626(ctx ReportContext) ControlMapping {
 		m.Gaps = append(m.Gaps, "No monitoring history")
 		return m
 	}
+	// Every counter that can clear the guard above must also be able to emit
+	// evidence, or the control reports satisfied citing nothing.
+	if ctx.IngestionSnapshotCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.IngestionSnapshotCount, "assessment snapshot"), Kind: "scan", Detail: "Operational posture recorded over time", Link: routeScans})
+	}
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Recurring operation monitoring", Link: routeScans})
 	}
-	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: "Runtime AI operation monitored at the gateway over the period", Link: routeAiFirewall})
+	if ctx.AiFirewallRequestCount > 0 {
+		detail := "Runtime AI operation monitored at the gateway over the period"
+		if !ctx.AiFirewallLogsEnabled {
+			detail = "Gateway inference volume observed; per-inference logging is currently disabled"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference"), Kind: "log", Detail: detail, Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Recurring assessments capture operational changes over the period."
@@ -450,8 +491,12 @@ func rA628(ctx ReportContext) ControlMapping {
 	if ctx.ScannerRunCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan", Detail: "Assessment events recorded", Link: routeScans})
 	}
-	if ctx.AiFirewallLogsEnabled && ctx.AiFirewallRequestCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)", Link: routeAiFirewall})
+	if ctx.AiFirewallRequestCount > 0 {
+		detail := "Runtime AI events recorded by the AI Firewall gateway (decisions, tokens, latency; no content)"
+		if !ctx.AiFirewallLogsEnabled {
+			detail = "Gateway inference volume observed; per-inference logging is currently disabled"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallRequestCount, "gateway inference log"), Kind: "log", Detail: detail, Link: routeAiFirewall})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "Life-cycle events are recorded via access logs and assessment-run history — the auditable lineage this control requires."
