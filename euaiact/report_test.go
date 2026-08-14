@@ -1,6 +1,9 @@
 package euaiact
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func richReportCtx() ReportContext {
 	return ReportContext{
@@ -33,9 +36,19 @@ func findRep(ms []ArticleMapping, article string) *ArticleMapping {
 }
 
 func TestReportArt15NowSatisfiable(t *testing.T) {
-	// Per-scan Art 15 is not-evidenceable; report-level with scanner runs +
-	// findings it becomes satisfied.
-	a15 := findRep(MapReport(richReportCtx()), "Article 15")
+	// Per-scan Art 15 is not-evidenceable; report-level it becomes satisfiable.
+	//
+	// Scanner runs and findings are no longer enough on their own: the article
+	// names accuracy, robustness and cybersecurity, and security telemetry
+	// speaks to two of the three (F-044). The fixture therefore carries
+	// evaluation tooling from the AI-BOM, which is the machine record of the
+	// accuracy half; without it the correct answer is partial, asserted in
+	// accuracy_evidence_test.go.
+	ctx := richReportCtx()
+	ctx.Components = append(ctx.Components, Component{
+		Name: "ragas", Category: "evaluation", Provider: "explodinggradients",
+	})
+	a15 := findRep(MapReport(ctx), "Article 15")
 	if a15 == nil || a15.Status != StatusSatisfied {
 		t.Fatalf("Art 15 report = %+v", a15)
 	}
@@ -100,10 +113,21 @@ func TestReportArt15FirewallDowngrade(t *testing.T) {
 	if len(a15.Gaps) == 0 {
 		t.Error("Art 15 downgrade should state the runtime-controls gap")
 	}
-	// No AI inventory at all → firewall absence must NOT downgrade.
+	// No AI inventory at all → firewall absence must NOT downgrade. It still
+	// reads partial, but for the accuracy gap rather than the runtime-controls
+	// one: with no inventory there is no evaluation tooling either, and an
+	// organisation with no AI systems has evidenced no accuracy (F-044). What
+	// this asserts is that the *reason* changed — the missing firewall is not
+	// held against an organisation that runs no models.
 	ctx.Components = nil
-	if s := findRep(MapReport(ctx), "Article 15").Status; s != StatusSatisfied {
-		t.Errorf("Art 15 without models = %s, want satisfied", s)
+	a15 = findRep(MapReport(ctx), "Article 15")
+	for _, g := range a15.Gaps {
+		if strings.Contains(g, "runtime input/output controls") {
+			t.Errorf("missing firewall is still held against an org with no inventoried models: %q", g)
+		}
+	}
+	if len(a15.Gaps) != 1 || !strings.Contains(a15.Gaps[0], "accuracy") {
+		t.Errorf("Art 15 without an inventory should carry exactly the accuracy gap, got %v", a15.Gaps)
 	}
 }
 

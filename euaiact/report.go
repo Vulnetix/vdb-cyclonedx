@@ -752,8 +752,39 @@ func reportArticle15(ctx ReportContext) ArticleMapping {
 	if ctx.FindingTotal > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FindingTotal, "finding"), Kind: "finding", Detail: "Weaknesses identified and tracked", Link: routeFindings})
 	}
+	// HasEvaluation is `Finding.isTestSuite` — a security finding located in
+	// test code. It says the codebase has a test suite; it says nothing about a
+	// model having been evaluated, and calling it "Model evaluation/benchmark
+	// workload present" put the only accuracy-shaped sentence in the report on
+	// top of a security counter.
 	if ctx.HasEvaluation {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: "evaluation", Kind: "runtime", Detail: "Model evaluation/benchmark workload present", Link: invLink(ctx)})
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "test-suite code", Kind: "finding",
+			Detail: "Findings located in test-suite code — the codebase carries automated tests, which is robustness evidence rather than model accuracy evidence",
+			Link:   routeFindings,
+		})
+	}
+	if ctx.CliTestConfigCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "test configuration", Kind: "provenance",
+			Detail: plural(ctx.CliTestConfigCount, "test configuration") + " detected (" + joinNames(ctx.TestFrameworks, "unclassified frameworks") + ")",
+			Link:   routeScans,
+		})
+	}
+	// The real accuracy signal: evaluation tooling recorded in the AI-BOM.
+	var evaluations []Component
+	for _, c := range ctx.Components {
+		if c.Category == "evaluation" {
+			evaluations = append(evaluations, c)
+		}
+	}
+	sortByName(evaluations)
+	for _, e := range evaluations {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: e.Name, Kind: "evaluation",
+			Detail: "AI evaluation tooling in the inventory — the machine record of accuracy/benchmark assessment",
+			Link:   invLink(ctx),
+		})
 	}
 	if ctx.ReachabilityTotal > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{
@@ -795,8 +826,19 @@ func reportArticle15(ctx ReportContext) ArticleMapping {
 		m.Gaps = append(m.Gaps, "No runtime input/output controls in front of inventoried models — prompt-level attacks unmitigated")
 		return m
 	}
+	// Article 15 names three obligations and this telemetry covers two of them.
+	// The satisfied claim used to be made on the strength of security testing
+	// alone, with a rationale that quietly listed only the two it could speak
+	// to while the article's own title leads with accuracy.
+	if len(evaluations) == 0 {
+		m.Status = StatusPartial
+		m.Rationale = "Cybersecurity and robustness are continuously assessed via automated testing runs with tracked findings across the period. Accuracy — the first obligation this article names — is not evidenced: no AI evaluation or benchmark tooling is recorded in the inventory."
+		m.Gaps = append(m.Gaps, "No accuracy or benchmark evidence for the inventoried AI systems")
+
+		return m
+	}
 	m.Status = StatusSatisfied
-	m.Rationale = "Cybersecurity and robustness are continuously assessed via automated testing runs with tracked findings across the period."
+	m.Rationale = "All three obligations are evidenced: cybersecurity and robustness by continuous automated testing with tracked findings, and accuracy by the evaluation tooling recorded in the AI inventory."
 	return m
 }
 
