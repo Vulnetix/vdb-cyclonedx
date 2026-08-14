@@ -627,6 +627,18 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 	} else {
 		m.Gaps = append(m.Gaps, "No documented risk-ranking method — risk estimation is not reproducible")
 	}
+	// The strategy is the method; the decisions are the method having been
+	// applied, which is what "evaluated" in Article 9 asks for. ISO 27001
+	// C.6.1.2, NIST GOVERN 3.1, Exposure and CRA all cite these records —
+	// Article 9 cited the strategy and left the decisions themselves unread.
+	if ctx.SsvcDecisionCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SsvcDecisionCount, "recorded risk decision"), Kind: "policy",
+			Detail: "Each evaluation is reproducible from its recorded inputs" +
+				methodologyClause(ctx.SsvcMethodologies),
+			Link: routeFindings,
+		})
+	}
 	if ctx.HasRemediationSLA() {
 		m.Evidence = append(m.Evidence, EvidenceItem{
 			Component: "targeted risk measures", Kind: "policy",
@@ -1100,4 +1112,15 @@ func (c ReportContext) DataIntegrityNote() string {
 
 	return "INCOMPLETE DATA: " + strings.Join(c.LoadFailures, ", ") +
 		" could not be read when this report was generated. Counts drawn from those sources are zero because the data is missing, not because nothing was found, so any conclusion resting on them is unsupported."
+}
+
+// methodologyClause names the decision methodologies behind recorded risk
+// decisions, so "reproducible from its recorded inputs" says reproducible
+// under what.
+func methodologyClause(methodologies []string) string {
+	if len(methodologies) == 0 {
+		return ""
+	}
+
+	return " using " + joinNames(methodologies, "the configured methodology")
 }
