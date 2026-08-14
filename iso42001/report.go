@@ -38,6 +38,11 @@ func MapReport(ctx ReportContext) []CategoryMapping {
 func mapReportCategories(ctx ReportContext) []CategoryMapping {
 	inv := classify(ctx.Components)
 	return []CategoryMapping{
+		// The management-system clauses come first because they are what an
+		// AIMS certification is *about*; Annex A is the control set beneath
+		// them. The report used to omit them entirely and tell the reader they
+		// were unevidenceable, which was false — see clauses.go.
+		clauseCategory(ctx, inv),
 		{
 			Category: "A.2", Title: "Policies related to AI",
 			Description: "Documented policy for the development, provision and use of AI systems, with supporting topic-specific policies.",

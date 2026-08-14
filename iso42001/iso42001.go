@@ -80,6 +80,15 @@ type Summary struct {
 	// AnnexAControls carries AnnexATotal so consumers can state the mapped
 	// fraction without hard-coding the standard's size themselves.
 	AnnexAControls int `json:"annexAControls"`
+	// AnnexAMapped is how many Annex A controls this report actually mapped —
+	// the numerator to AnnexAControls. Controls above counts *every* mapped
+	// control including the management-system clauses, so using it as the
+	// numerator would make added clause coverage look like added Annex A
+	// coverage, which is the mistake F-072 fixed in the PDCA denominators.
+	AnnexAMapped int `json:"annexAMapped"`
+	// ClauseMapped / ClauseControls are the same fraction for clauses 4–10.
+	ClauseMapped   int `json:"clauseMapped"`
+	ClauseControls int `json:"clauseControls"`
 }
 
 // Map returns the Annex A control mappings for one AI-BOM scan.
@@ -142,10 +151,15 @@ func Map(scan Scan, comps []Component) []CategoryMapping {
 
 // SummarizeCategories rolls all controls into a Summary.
 func SummarizeCategories(cats []CategoryMapping) Summary {
-	s := Summary{Framework: Framework, AnnexAControls: AnnexATotal}
+	s := Summary{Framework: Framework, AnnexAControls: AnnexATotal, ClauseControls: ClauseTotal}
 	for _, c := range cats {
 		for _, ctl := range c.Controls {
 			s.Controls++
+			if c.Category == ClauseCategory {
+				s.ClauseMapped++
+			} else {
+				s.AnnexAMapped++
+			}
 			switch ctl.Status {
 			case StatusSatisfied:
 				s.Satisfied++

@@ -101,8 +101,13 @@ func TestReportCategoriesAndControls(t *testing.T) {
 	// controls that already had mappers were never called from this path, so the
 	// report covered less of Annex A than a single scan did. Every control still
 	// has to carry a status — an unevidenced control is fine, a blank one is not.
-	if len(cats) != 9 {
-		t.Fatalf("want 9 categories, got %d", len(cats))
+	//
+	// Now 10: the management-system clause category was added (F-068). The
+	// report told the reader clauses 4–10 "describe processes an inventory
+	// cannot evidence" while the 27001 builder evidenced the equivalent Annex SL
+	// clauses from the same context.
+	if len(cats) != 10 {
+		t.Fatalf("want 10 categories, got %d", len(cats))
 	}
 
 	seen := map[string]bool{}
@@ -130,8 +135,9 @@ func TestReportCategoriesAndControls(t *testing.T) {
 			t.Errorf("%s is absent; a category the report cannot evidence must still be declared, not omitted", id)
 		}
 	}
-	if len(seen) != 20 {
-		t.Errorf("controls = %d, want 20", len(seen))
+	// 20 Annex A controls plus the six management-system clause mappings.
+	if len(seen) != 26 {
+		t.Errorf("controls = %d, want 26", len(seen))
 	}
 
 	// The denominator the summary carries has to be the standard's, not ours.
@@ -139,7 +145,16 @@ func TestReportCategoriesAndControls(t *testing.T) {
 	if s.AnnexAControls != AnnexATotal {
 		t.Errorf("summary AnnexAControls = %d, want %d — without it a partial mapping reads as full coverage", s.AnnexAControls, AnnexATotal)
 	}
-	if s.Controls >= s.AnnexAControls {
-		t.Errorf("mapped %d of %d: the mapped count must stay below the Annex A total or the disclosure is wrong", s.Controls, s.AnnexAControls)
+	// The numerator has to be the Annex A controls alone. Counting the clause
+	// mappings into it would make added clause coverage read as added Annex A
+	// coverage — the F-072 mistake, in the other direction.
+	if s.AnnexAMapped != 20 {
+		t.Errorf("AnnexAMapped = %d, want 20 (clause mappings must not count toward Annex A)", s.AnnexAMapped)
+	}
+	if s.ClauseMapped != 6 || s.ClauseControls != ClauseTotal {
+		t.Errorf("clause coverage = %d of %d, want 6 of %d", s.ClauseMapped, s.ClauseControls, ClauseTotal)
+	}
+	if s.AnnexAMapped >= s.AnnexAControls {
+		t.Errorf("mapped %d of %d: the mapped count must stay below the Annex A total or the disclosure is wrong", s.AnnexAMapped, s.AnnexAControls)
 	}
 }
