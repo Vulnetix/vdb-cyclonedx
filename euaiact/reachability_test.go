@@ -66,20 +66,52 @@ func maximalCtx() ReportContext {
 	}
 }
 
+// documentOnly are the articles telemetry cannot reach, each with the reason.
+// They are not capped: a customer attaching the document moves them, which the
+// first half of the sweep asserts. Listing them by name keeps the difference
+// between "needs a document" and "capped by accident" written down — and makes
+// any accidental addition to the set visible in a diff.
+var documentOnly = map[string]string{
+	"Article 5":      "whether a system performs a prohibited practice depends on how it is used, which no inventory or scan reveals",
+	"Article 6":      "Annex III classification turns on the system's purpose, not on its components",
+	"Article 13":     "instructions for use are a provider-authored document",
+	"Articles 51-55": "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
+}
+
 func TestNoArticleIsCappedBelowSatisfied(t *testing.T) {
-	// Deliberate ceilings, each with the reason it cannot be lifted from
-	// telemetry. Anything else capped under maximal input is an accident.
-	deliberate := map[string]string{
-		"Articles 51-55": "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
+	// Maximal input means every signal the builders read — including the
+	// customer's attached evidence, which is a real input since F-206.
+	ctx := maximalCtx()
+	ctx.ManualEvidenceByControl = map[string]int{}
+	for _, a := range MapReport(ctx) {
+		ctx.ManualEvidenceByControl[a.Article] = 1
 	}
 
-	for _, a := range MapReport(maximalCtx()) {
-		if _, ok := deliberate[a.Article]; ok {
-			continue
-		}
+	for _, a := range MapReport(ctx) {
 		if a.Status != StatusSatisfied && a.Status != StatusNotApplicable {
-			t.Errorf("%s (%s) = %s under maximal input; no organization can reach satisfied — rationale: %s",
+			t.Errorf("%s (%s) = %s with every signal present and evidence attached; no organization can reach satisfied — rationale: %s",
 				a.Article, a.Title, a.Status, a.Rationale)
+		}
+	}
+}
+
+func TestDocumentOnlyArticlesAreExactlyTheDeclaredSet(t *testing.T) {
+	// Telemetry alone, nothing attached: whatever cannot reach satisfied here
+	// is document-only, and the set has to match the list above.
+	got := map[string]bool{}
+	for _, a := range MapReport(maximalCtx()) {
+		if a.Status != StatusSatisfied && a.Status != StatusNotApplicable {
+			got[a.Article] = true
+		}
+	}
+	for id := range got {
+		if _, ok := documentOnly[id]; !ok {
+			t.Errorf("%s cannot be satisfied from telemetry and is not in the document-only list; either it is capped by accident or the list needs it with a reason", id)
+		}
+	}
+	for id, why := range documentOnly {
+		if !got[id] {
+			t.Errorf("%s is listed as document-only (%s) but telemetry alone satisfies it; the list is stale", id, why)
 		}
 	}
 }

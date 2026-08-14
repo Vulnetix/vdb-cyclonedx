@@ -78,10 +78,17 @@ func TestReportGapVsNotApplicable(t *testing.T) {
 	if findRep(ms, "Article 12").Status != StatusGap {
 		t.Errorf("empty Art 12 should be gap")
 	}
-	// Art 13 → not-applicable (not evaluable), distinct from gap
+	// Art 13 → informational (not evaluable), distinct from gap.
+	//
+	// This asserted not-applicable, which claims the obligation is out of
+	// scope. It is not: Article 13 applies to every provider, and what is
+	// missing is the document. Informational says "no basis to judge", which is
+	// what the data supports, and it is what Articles 5 and 6 return for the
+	// same reason. The distinction this test exists to protect — an
+	// unevaluable article must not read as a gap — still holds.
 	a13 := findRep(ms, "Article 13")
-	if a13.Status != StatusNotApplicable {
-		t.Errorf("Art 13 should be not-applicable, got %s", a13.Status)
+	if a13.Status != StatusInformational {
+		t.Errorf("Art 13 should be informational, got %s", a13.Status)
 	}
 	if a13.Rationale == "" {
 		t.Error("Art 13 not-applicable needs a rationale")

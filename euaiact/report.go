@@ -412,6 +412,22 @@ func MapReport(ctx ReportContext) []ArticleMapping {
 
 func mapReportArticles(ctx ReportContext) []ArticleMapping {
 	return []ArticleMapping{
+		// Articles 5 and 6 were absent from the report entirely, and their
+		// absence was not neutral. The six high-risk articles below assert
+		// "High-risk AI systems must …" and were emitted for every
+		// organization unconditionally, so an estate whose only AI is a coding
+		// assistant was reported against the full high-risk obligation set —
+		// while the risk pyramid's "Unacceptable risk" apex sat permanently
+		// empty, which reads as "no prohibited practices found" when the truth
+		// was that Article 5 was never evaluated.
+		//
+		// Neither is derivable from a component inventory: Annex III turns on
+		// what the system is *used for* (biometrics, employment, credit), not
+		// on which libraries it imports. So both are emitted as what they are —
+		// the organization's determination — and both are promotable by
+		// attaching it.
+		reportArticle5(ctx),
+		reportArticle6(ctx),
 		reportArticle9(ctx),
 		reportArticle10(ctx),
 		reportArticle11(ctx),
@@ -425,6 +441,58 @@ func mapReportArticles(ctx ReportContext) []ArticleMapping {
 	}
 }
 
+// reportArticle5 covers the prohibited practices. Nothing in a software bill of
+// materials reveals whether a system does social scoring or untargeted facial
+// scraping — those are properties of how it is used — so this is the
+// organization's declaration, and the report says so instead of leaving the
+// question off the page.
+func reportArticle5(ctx ReportContext) ArticleMapping {
+	const id = "Article 5"
+	m := article(id, "Prohibited AI practices",
+		"Certain practices are banned outright: manipulative or exploitative techniques, social scoring, untargeted facial-image scraping, emotion inference at work or school, and real-time remote biometric identification in public spaces.")
+	if n := ctx.ManualEvidenceCount(id); n > 0 {
+		m.Status = StatusSatisfied
+		m.Rationale = "The organization has recorded its assessment against the prohibited practices (" +
+			plural(n, "attached document") + "). Vulnetix cannot observe how a system is used — an assessor samples the attachment."
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "Prohibited-practices assessment, supplied by the organization",
+		})
+
+		return m
+	}
+	m.Status = StatusInformational
+	m.Rationale = "Not evaluated. Whether a system performs a prohibited practice depends on what it is used for, which no inventory or scan reveals — this is not a finding of compliance, and an empty result here must not be read as one. Record the assessment as manual evidence."
+	m.Gaps = append(m.Gaps, "No prohibited-practices assessment on record")
+
+	return m
+}
+
+// reportArticle6 covers the classification rules. Annex III turns on the use
+// case, so the tier is the organization's to declare; without it the high-risk
+// articles in this report are reported unconditionally and say so here.
+func reportArticle6(ctx ReportContext) ArticleMapping {
+	const id = "Article 6"
+	m := article(id, "Classification of high-risk AI systems",
+		"A system is high-risk when it is a safety component of a regulated product, or falls within an Annex III use case; the provider must document the classification.")
+	if n := ctx.ManualEvidenceCount(id); n > 0 {
+		m.Status = StatusSatisfied
+		m.Rationale = "The organization has documented its Annex III classification (" +
+			plural(n, "attached document") + "), so the high-risk obligations in this report are reported against a declared scope."
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "Annex III classification, supplied by the organization",
+		})
+
+		return m
+	}
+	m.Status = StatusInformational
+	m.Rationale = "No Annex III classification is on record. Annex III turns on the system's purpose — biometrics, education, employment, essential services — which is not derivable from a component inventory, so every high-risk article in this report is reported unconditionally: they state what would be required if the system is high-risk, not a finding that it is."
+	m.Gaps = append(m.Gaps, "No documented Annex III classification — the high-risk articles below are unscoped")
+
+	return m
+}
+
 // reportArticle13 covers instructions for use. Vulnetix holds none of this —
 // it is a provider-authored document — so the article's only path is the
 // customer attaching it. That path used to be closed: the article was
@@ -435,8 +503,14 @@ func reportArticle13(ctx ReportContext) ArticleMapping {
 		"Providers must supply deployers with instructions covering the system's characteristics, capabilities and limitations.")
 	n := ctx.ManualEvidenceCount(id)
 	if n == 0 {
-		m.Status = StatusNotApplicable
-		m.Rationale = "Not evaluable from Vulnetix data — instructions-for-use are provider-authored documents; upload them as manual evidence against this article and it will be assessed."
+		// Informational, not not-applicable. This article applies to every
+		// provider; what is missing is the evidence, and "not applicable" says
+		// the obligation is out of scope — a different and stronger claim than
+		// the one the data supports. It reads the same as Articles 5 and 6,
+		// which are unevidenceable for the same reason.
+		m.Status = StatusInformational
+		m.Rationale = "Not evaluable from Vulnetix data — instructions-for-use are provider-authored documents. This is not a finding that the obligation does not apply; upload the instructions as manual evidence against this article and it will be assessed."
+		m.Gaps = append(m.Gaps, "No instructions-for-use document on record")
 
 		return m
 	}
