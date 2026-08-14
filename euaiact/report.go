@@ -245,6 +245,13 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// SecretAlertBypassed counts alerts that exist because someone was warned a
+	// commit contained a secret and pushed it anyway. A preventive control
+	// being *overridden* is among the strongest things an assessor can be
+	// handed, and it was unread: a bypassed alert still resolves, so an estate
+	// that overrode push protection fourteen times and cleaned up afterwards
+	// read exactly like one where the control was never challenged.
+	SecretAlertBypassed int
 
 	// ── Supply-chain provenance ───────────────────────────────────────────
 	SlsaProvenanceCount   int
