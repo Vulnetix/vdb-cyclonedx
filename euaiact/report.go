@@ -9,6 +9,8 @@ package euaiact
 // one-line "no evidence found"); controls that cannot be evaluated from
 // available data return StatusNotApplicable with the reason.
 
+import "strings"
+
 // Product route paths for evidence links (stable vdb-* pages).
 const (
 	routeFindings     = "/vdb-findings"
@@ -314,6 +316,15 @@ func (c ReportContext) ReachableCount() int {
 
 // MapReport returns the EU AI Act article mappings for a whole report.
 func MapReport(ctx ReportContext) []ArticleMapping {
+	arts := mapReportArticles(ctx)
+	for i := range arts {
+		StampInventoryRefs(ctx, arts[i].Evidence)
+	}
+
+	return arts
+}
+
+func mapReportArticles(ctx ReportContext) []ArticleMapping {
 	return []ArticleMapping{
 		reportArticle9(ctx),
 		reportArticle10(ctx),
@@ -365,6 +376,32 @@ func invLink(ctx ReportContext) string {
 		return routeInventory + "/" + ctx.LatestAibomScanUUID
 	}
 	return routeInventory
+}
+
+// StampInventoryRefs fills RefID on evidence drawn from the AI inventory, using
+// the scan the inventory came from.
+//
+// RefID was declared in the Go struct, declared in the TypeScript type, and
+// populated by nothing. Every AI-report evidence item that links to the
+// inventory is derived from one identifiable scan, so the id exists — it was
+// simply never carried through, and an assessor sampling a control could not
+// name the record they checked.
+//
+// Applied as one pass over the built evidence rather than threaded through the
+// two dozen call sites: the id is the same for all of them, and a post-pass
+// cannot be forgotten at a new call site the way an extra argument can.
+func StampInventoryRefs(ctx ReportContext, evidence []EvidenceItem) {
+	if ctx.LatestAibomScanUUID == "" {
+		return
+	}
+	for i := range evidence {
+		if evidence[i].RefID != "" {
+			continue
+		}
+		if strings.HasPrefix(evidence[i].Link, routeInventory) {
+			evidence[i].RefID = ctx.LatestAibomScanUUID
+		}
+	}
 }
 
 // reportArticle9 covers the risk-management system: a continuous, iterated

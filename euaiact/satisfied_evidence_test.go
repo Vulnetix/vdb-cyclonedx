@@ -13,6 +13,7 @@ package euaiact_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/Vulnetix/vdb-cyclonedx/euaiact"
@@ -105,4 +106,87 @@ func truncate(s string, n int) string {
 	}
 
 	return fmt.Sprintf("%s…", s[:n])
+}
+
+// TestInventoryEvidenceCarriesTheScanRef guards F-182: RefID was declared in
+// the Go struct, declared in the TypeScript type, and populated by nothing, so
+// an assessor sampling a control could not name the record they checked.
+func TestInventoryEvidenceCarriesTheScanRef(t *testing.T) {
+	ctx := euaiact.ReportContext{
+		Components: []euaiact.Component{
+			{Category: "model", Name: "gpt-4o", Provider: "OpenAI", Task: "chat", EvidenceCount: 1},
+			{Category: "ai-sdk", Name: "openai", Provider: "OpenAI", EvidenceCount: 1},
+		},
+		AibomScanCount: 12, LatestAibomScanUUID: "scan-abc",
+		ScannerRunCount: 40, FindingTotal: 100,
+	}
+
+	type stamped struct{ total, withRef int }
+	count := func(items []euaiact.EvidenceItem) stamped {
+		var s stamped
+		for _, e := range items {
+			if !strings.HasPrefix(e.Link, "/vdb-ai-inventory") {
+				continue
+			}
+			s.total++
+			if e.RefID == "scan-abc" {
+				s.withRef++
+			}
+		}
+
+		return s
+	}
+
+	var all stamped
+	add := func(s stamped) { all.total += s.total; all.withRef += s.withRef }
+	for _, a := range euaiact.MapReport(ctx) {
+		add(count(a.Evidence))
+	}
+	for _, fn := range nistairmf.MapReport(ctx) {
+		for _, sc := range fn.Subcategories {
+			add(count(sc.Evidence))
+		}
+	}
+	for _, cat := range iso42001.MapReport(ctx) {
+		for _, c := range cat.Controls {
+			add(count(c.Evidence))
+		}
+	}
+
+	if all.total == 0 {
+		t.Fatal("no inventory-linked evidence in any AI report; the fixture is wrong, not the code")
+	}
+	if all.withRef != all.total {
+		t.Errorf("%d of %d inventory-linked evidence items carry the scan id; an assessor cannot name the record behind the rest",
+			all.withRef, all.total)
+	}
+}
+
+func TestStampInventoryRefsLeavesAggregatesAlone(t *testing.T) {
+	// Evidence that does not come from the inventory has no scan behind it, and
+	// inventing one would be worse than leaving it blank.
+	items := []euaiact.EvidenceItem{
+		{Component: "ScannerRun", Link: "/vdb-scanner-results"},
+		{Component: "Model", Link: "/vdb-ai-inventory/x"},
+		{Component: "Pinned", Link: "/vdb-ai-inventory", RefID: "already-set"},
+	}
+	euaiact.StampInventoryRefs(euaiact.ReportContext{LatestAibomScanUUID: "scan-1"}, items)
+
+	if items[0].RefID != "" {
+		t.Errorf("non-inventory evidence got a scan id: %q", items[0].RefID)
+	}
+	if items[1].RefID != "scan-1" {
+		t.Errorf("inventory evidence = %q, want scan-1", items[1].RefID)
+	}
+	if items[2].RefID != "already-set" {
+		t.Errorf("an existing, more specific id was overwritten: %q", items[2].RefID)
+	}
+}
+
+func TestStampInventoryRefsIsANoopWithoutAScan(t *testing.T) {
+	items := []euaiact.EvidenceItem{{Link: "/vdb-ai-inventory"}}
+	euaiact.StampInventoryRefs(euaiact.ReportContext{}, items)
+	if items[0].RefID != "" {
+		t.Errorf("stamped %q with no scan on record", items[0].RefID)
+	}
 }

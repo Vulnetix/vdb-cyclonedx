@@ -24,6 +24,17 @@ func quoted(s string) string { return `"` + s + `"` }
 
 // MapReport returns the AI RMF function mappings for a whole report.
 func MapReport(ctx ReportContext) []FunctionMapping {
+	fns := mapReportFunctions(ctx)
+	for i := range fns {
+		for j := range fns[i].Subcategories {
+			euaiact.StampInventoryRefs(ctx, fns[i].Subcategories[j].Evidence)
+		}
+	}
+
+	return fns
+}
+
+func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 	inv := classify(ctx.Components)
 	return []FunctionMapping{
 		{

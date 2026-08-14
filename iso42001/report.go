@@ -25,6 +25,17 @@ const (
 
 // MapReport returns the Annex A control mappings for a whole report.
 func MapReport(ctx ReportContext) []CategoryMapping {
+	cats := mapReportCategories(ctx)
+	for i := range cats {
+		for j := range cats[i].Controls {
+			euaiact.StampInventoryRefs(ctx, cats[i].Controls[j].Evidence)
+		}
+	}
+
+	return cats
+}
+
+func mapReportCategories(ctx ReportContext) []CategoryMapping {
 	inv := classify(ctx.Components)
 	return []CategoryMapping{
 		{
