@@ -142,6 +142,25 @@ type ReportContext struct {
 	DependencyTotal     int
 	DependencyReviewed  int
 
+	// Human peer review of changes, from GitHubPullRequestReview. Several
+	// standards ask for review of changes before release — ISO 27001 A.8.25 and
+	// A.8.28, PCI DSS 6.2.3, DSOMM, CRA Annex I Part I 1 — and every one of them
+	// fell back to "manual evidence required" while these rows sat unread. A
+	// scanner disposition is a tool's opinion; an approval is a person's.
+	CodeReviewTotal            int // reviews submitted in the period
+	CodeReviewApproved         int // state = APPROVED
+	CodeReviewChangesRequested int
+	CodeReviewPullRequests     int // distinct pull requests reviewed
+	CodeReviewReviewers        int // distinct reviewers
+	CodeReviewReposCovered     int // distinct in-scope repos with a review
+
+	// GitHub secret-scanning alerts, from GitHubSecretScanningAlert. Detection
+	// by a second, independent tool plus a recorded resolution — which is
+	// stronger evidence for a secrets control than Vulnetix's own scan count.
+	SecretAlertTotal    int
+	SecretAlertResolved int
+	SecretAlertOpen     int
+
 	// ── Supply-chain provenance ───────────────────────────────────────────
 	SlsaProvenanceCount   int
 	SlsaVerifiedCount     int
