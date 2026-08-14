@@ -101,6 +101,21 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// Code-host repository controls. Branch protection is the mechanism that
+	// makes review mandatory, and GitHub's own security-and-analysis block says
+	// which platform controls are switched on for each repository — the
+	// difference between a control that exists and one that applies here.
+	RepoTotal              int
+	RepoPublic             int
+	RepoSecretScanning     int
+	RepoPushProtection     int
+	RepoDependabotUpdates  int
+	RepoSignoffRequired    int
+	BranchTotal            int
+	BranchProtected        int
+	BranchMonitoredTotal   int
+	BranchMonitoredProtect int
+
 	// Repository insights. Not another finding source: a measurement, its
 	// formula, the ladder that classified it, and a pointer to every item
 	// behind the number. InsightsMetric.definition is the formula verbatim and
@@ -356,15 +371,15 @@ type ReportContext struct {
 	CloudExposedPorts     int
 	CloudCritFindings     int
 
-	CloudIssueTotal     int
-	CloudIssueOpen      int
-	CloudIssueMapped    int // issues carrying a security-framework attribution
+	CloudIssueTotal  int
+	CloudIssueOpen   int
+	CloudIssueMapped int // issues carrying a security-framework attribution
 	// Disposition, from the vendor's own fields: how the estate is managed
 	// rather than how large it is.
-	CloudIssueResolved int
-	CloudIssueOverdue  int // past dueAt, still open
-	CloudIssueTicketed int // tracked in a ticketing system
-	CloudIssueAssigned int // has a named owner
+	CloudIssueResolved  int
+	CloudIssueOverdue   int // past dueAt, still open
+	CloudIssueTicketed  int // tracked in a ticketing system
+	CloudIssueAssigned  int // has a named owner
 	CloudFrameworkNames []string
 
 	// CycloneDX 1.6 attestation payloads. `declarations` carries conformance
