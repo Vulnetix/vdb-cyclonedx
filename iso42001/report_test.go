@@ -40,8 +40,18 @@ func TestReportEventLogsFromAccessLog(t *testing.T) {
 }
 
 func TestReportVerificationFromScans(t *testing.T) {
-	if findCtlR(MapReport(richCtx()), "A.6.2.4").Status != StatusSatisfied {
-		t.Error("A.6.2.4 with scan runs should be satisfied")
+	// This asserted Satisfied from scan runs alone, which is the F-070 defect:
+	// A.6.2.4 asks whether *the AI system* was verified and validated against
+	// its requirements, and SAST/SCA runs over the repository answer about the
+	// software delivering it. Scans are half the control, so the expectation is
+	// now Partial, and the satisfied case — evaluation tooling recorded in the
+	// AI-BOM alongside recurring assessment — is asserted in vandv_test.go.
+	m := findCtlR(MapReport(richCtx()), "A.6.2.4")
+	if m.Status != StatusPartial {
+		t.Errorf("A.6.2.4 with scan runs but no AI evaluation evidence = %q, want %q", m.Status, StatusPartial)
+	}
+	if len(m.Evidence) == 0 {
+		t.Error("the software-verification half is evidenced and must still be cited")
 	}
 }
 

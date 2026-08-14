@@ -84,7 +84,7 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Description: "Design, verification, operation, documentation and event logging across the life cycle.",
 			Controls: []ControlMapping{
 				a623(inv),
-				rA624(ctx),
+				rA624(ctx, inv),
 				rA625(ctx),
 				rA626(ctx),
 				rA627(ctx, inv),
@@ -332,7 +332,7 @@ func rA52(ctx ReportContext, inv inventory) ControlMapping {
 
 // ── A.6 Life cycle ────────────────────────────────────────────────────────────
 
-func rA624(ctx ReportContext) ControlMapping {
+func rA624(ctx ReportContext, inv inventory) ControlMapping {
 	m := ctl("A.6", "A.6.2.4", "Verification & validation",
 		"The AI system is verified and validated.")
 	if ctx.ScannerRunCount == 0 && !ctx.HasEvaluation {
@@ -379,8 +379,39 @@ func rA624(ctx ReportContext) ControlMapping {
 			Link: routeFindings,
 		})
 	}
-	m.Status = StatusSatisfied
-	m.Rationale = "The AI/software is verified and validated by recurring automated assessment runs."
+	// The status used to be assigned unconditionally here, and the rationale
+	// read "The AI/software is verified and validated" — the slash is where the
+	// substitution happened: A.6.2.4 asks whether *the AI system* was verified
+	// and validated against its requirements, and SAST/SCA runs over the
+	// repository answer about the software delivering it. Vulnetix can see AI
+	// evaluation tooling in the AI-BOM, and that is the machine record of the
+	// AI half; without it the control is half-evidenced and says so.
+	recurring := ctx.ScannerRunCount > 1
+	if len(inv.evaluations) > 0 && recurring {
+		sortByName(inv.evaluations)
+		for _, e := range inv.evaluations {
+			m.Evidence = append(m.Evidence, EvidenceItem{
+				Component: e.Name, Kind: "evaluation",
+				Detail: "AI evaluation tooling in the inventory", Link: invLink(ctx),
+			})
+		}
+		m.Status = StatusSatisfied
+		m.Rationale = "Both halves are evidenced: the software delivering the AI system is verified by recurring automated assessment, and AI evaluation tooling is recorded in the inventory."
+
+		return m
+	}
+
+	m.Status = StatusPartial
+	switch {
+	case recurring:
+		m.Rationale = "The software delivering the AI system is verified by recurring automated assessment. The AI system's own validation — performance against defined requirements and acceptance criteria — is not evidenced by these runs."
+	case ctx.ScannerRunCount > 0:
+		m.Rationale = "A single assessment run was recorded in the period — verification happened once, not as a repeated practice — and it does not validate the AI system against its requirements."
+	default:
+		m.Rationale = "An evaluation workload is present, but no assessment run was recorded in the period, so neither the software nor the AI system was verified within it."
+	}
+	m.Gaps = append(m.Gaps, "No AI-system validation evidence — model performance against defined requirements and acceptance criteria needs manual evidence")
+
 	return m
 }
 
