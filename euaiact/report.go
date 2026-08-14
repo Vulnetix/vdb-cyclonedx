@@ -251,6 +251,21 @@ type ReportContext struct {
 	// already stored, and no control read it — so ISO A.5.23 evidenced cloud
 	// security from IaC scan counts while a vendor's framework attribution sat
 	// unused beside it.
+	// API access to the vulnerability database (VdbAccessLog) and third-party
+	// integration calls (IntegrationUsageLog), both carrying an outcome code.
+	//
+	// The denied counts are the point: PCI 10.2.1.4 enumerates invalid logical
+	// access attempts and ISO A.8.16 asks for monitoring that surfaces
+	// anomalous behaviour, and both were evidenced from alert counts and
+	// scanner activity. A rejected API call is the most literal record of an
+	// access attempt that should not have succeeded, and neither log was read.
+	ApiAccessTotal        int
+	ApiAccessDenied       int
+	ApiAccessSourceIPs    int
+	IntegrationCallTotal  int
+	IntegrationCallFailed int
+	IntegrationSources    []string
+
 	// Alert disposition detail, from MissionControlAlert's attribution columns.
 	//
 	// The status bucket alone cannot separate an alert a person acknowledged
