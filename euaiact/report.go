@@ -112,6 +112,17 @@ type ReportContext struct {
 	CbomQuantumVulnerable int
 	CbomQuantumSafe       int
 
+	// Penetration tests, from CollectionEvent.eventType = PenTest. This is the
+	// only record of a penetration test anywhere in the schema, and no report
+	// read it — so PCI 11.4, ISO A.8.29 and CRA II.3 all evidenced "security
+	// testing" from automated scanner counts, which is a different activity
+	// entirely. A scanner run is not a penetration test, and the requirement
+	// that says "penetration test" is not met by one.
+	PenTestCount    int
+	PenTestLastAt   int64
+	PenTestTitles   []string
+	PenTestInPeriod int
+
 	// Package Firewall: the install-time supply-chain gate. A BLOCK is a dated
 	// record of a malicious or policy-violating package being stopped before it
 	// entered the build, which is direct evidence for OWASP A03 — and A03 could
