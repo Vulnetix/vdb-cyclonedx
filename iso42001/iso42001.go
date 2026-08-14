@@ -301,6 +301,12 @@ func a44(inv inventory) ControlMapping {
 	for _, s := range inv.services {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "service", Detail: "AI service/runtime tooling"})
 	}
+	// Counted in n but never cited, so an inventory of coding agents alone
+	// reported "N tooling resources are documented" with an empty list.
+	sortByName(inv.tools)
+	for _, s := range inv.tools {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "tool", Detail: "AI development tooling — " + s.Category})
+	}
 	m.Status = StatusSatisfied
 	m.Rationale = plural(n, "tooling resource") + " are documented across the life cycle."
 	return m

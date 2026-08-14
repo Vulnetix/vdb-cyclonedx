@@ -56,7 +56,7 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 			Subcategories: []SubcategoryMapping{
 				rMap11(ctx, inv),
 				rMap21(ctx, inv),
-				rMap22(inv),
+				rMap22(ctx, inv),
 				rMap41(ctx, inv),
 				// Not evidenceable, and emitted as such: a subcategory absent
 				// from the report cannot be graded and nothing says it is gone.
@@ -228,6 +228,18 @@ func rMap21(ctx ReportContext, inv inventory) SubcategoryMapping {
 		}
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: mdl.Name, Kind: "model", Detail: d, Link: invLink(ctx)})
 	}
+	// The gate admits services as well as models, but only models were cited —
+	// so an inventory of AI services and no models read "Models are categorized
+	// by task and serving methods enumerated" while enumerating nothing. The
+	// serving method is exactly what a service *is*, so it belongs here.
+	sortByName(inv.services)
+	for _, svc := range inv.services {
+		d := "Serving method — " + svc.Category
+		if svc.Provider != "" {
+			d += " via " + svc.Provider
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: svc.Name, Kind: "service", Detail: d, Link: invLink(ctx)})
+	}
 	if untasked > 0 {
 		m.Status = StatusPartial
 		m.Rationale = "AI methods are categorized; " + plural(untasked, "model") + " lack a resolved task."
@@ -239,7 +251,7 @@ func rMap21(ctx ReportContext, inv inventory) SubcategoryMapping {
 	return m
 }
 
-func rMap22(inv inventory) SubcategoryMapping {
+func rMap22(ctx ReportContext, inv inventory) SubcategoryMapping {
 	m := sub("MAP", "MAP 2.2", "Knowledge limits documented",
 		"Information about the AI system's knowledge limits is documented.")
 	if len(inv.all) == 0 {
@@ -248,8 +260,21 @@ func rMap22(inv inventory) SubcategoryMapping {
 		return m
 	}
 	if len(inv.gapped) == 0 {
-		m.Status = StatusSatisfied
-		m.Rationale = "Every component was fully resolved — the inventory states no unverified knowledge limits."
+		// This claimed satisfied with an empty evidence list, on the strength of
+		// an absence: no component carried a resolution gap. Two problems. The
+		// claim was unsamplable — there was nothing for an assessor to check —
+		// and a fully-resolved inventory is a statement about *our* resolution
+		// confidence, not documentation of the AI system's knowledge limits
+		// (training cutoff, context window, domain), which is what MAP 2.2 asks
+		// for. The inventory is real evidence toward it, so it is cited and the
+		// remaining obligation named, rather than claimed or dropped.
+		m.Status = StatusPartial
+		m.Rationale = "Every component in the inventory resolved without a confidence gap, so nothing is recorded as unverified. The AI system's own knowledge limits — training cutoff, context window, domain of validity — are not derivable from the inventory and need manual evidence."
+		m.Gaps = append(m.Gaps, "No documented knowledge limits for the AI systems themselves")
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(inv.all), "inventoried component"), Kind: "inventory",
+			Detail: "All resolved with no unverified entries", Link: invLink(ctx),
+		})
 		return m
 	}
 	sortByName(inv.gapped)

@@ -30,7 +30,7 @@ type violation struct {
 // scenarios are contexts a real organisation can be in, each chosen to clear a
 // status guard while leaving every evidence emitter's own guard unmet.
 func scenarios() map[string]euaiact.ReportContext {
-	return map[string]euaiact.ReportContext{
+	out := map[string]euaiact.ReportContext{
 		// Gateway traffic recorded, then inference logging switched off.
 		"firewall-logs-disabled": {
 			AiFirewallRequestCount: 5,
@@ -54,6 +54,32 @@ func scenarios() map[string]euaiact.ReportContext {
 			AibomScanCount: 12,
 		},
 	}
+
+	// One scenario per AI-BOM component category, each holding *only* that
+	// kind. This is what the scenarios above could not reach: a control whose
+	// status guard counts several inventory kinds while its evidence loop
+	// covers only some of them stays green for an organisation holding the
+	// uncovered kind. F-069 was exactly that — A.4.4 counted tools, SDKs and
+	// services, and emitted evidence for SDKs alone, so an estate full of
+	// coding agents printed "3 tooling resources documented" with an empty
+	// evidence list. Coding-agent detection is a headline feature, so that is
+	// an ordinary customer, not a corner case.
+	for _, cat := range []string{
+		"model", "ai-service", "inference", "managed-ai", "ai-sdk",
+		"coding-agent", "ai-convention", "training", "vector-database",
+		"accelerator", "evaluation", "data",
+	} {
+		c := euaiact.Component{Name: "only-" + cat, Category: cat, Provider: "acme"}
+		if cat == "data" {
+			c.DataKind = "dataset"
+		}
+		out["inventory-only-"+cat] = euaiact.ReportContext{
+			AibomScanCount: 3,
+			Components:     []euaiact.Component{c},
+		}
+	}
+
+	return out
 }
 
 func collect(ctx euaiact.ReportContext) []violation {

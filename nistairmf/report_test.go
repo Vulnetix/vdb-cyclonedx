@@ -229,6 +229,15 @@ func TestNoSubcategoryIsCappedBelowSatisfied(t *testing.T) {
 	ctx.SsvcDecisionCount = 40
 	ctx.RiskStrategyName = "default"
 	ctx.RiskStrategyRuleCount = 22
+	// MAP 2.2 asks that the AI system's knowledge limits be *documented*, so a
+	// component carrying a stated limit is its positive state — an inventory
+	// with nothing unresolved has documented nothing. The maximal input has to
+	// contain one, or the subcategory looks capped when it is only unexercised.
+	ctx.Components = append(ctx.Components, euaiact.Component{
+		Name: "internal-classifier", Category: "model",
+		Task: "classification", ConfidenceGap: true,
+		GapReason: "training data cutoff not recorded upstream",
+	})
 
 	// MAP 1.1 and MANAGE 4.3 cap at partial on purpose: each carries a second
 	// obligation (the requirements for the intended purpose; communicating

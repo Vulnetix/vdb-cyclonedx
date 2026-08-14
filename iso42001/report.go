@@ -263,9 +263,22 @@ func rA44(ctx ReportContext, inv inventory) ControlMapping {
 		m.Gaps = append(m.Gaps, "No AI tooling found")
 		return m
 	}
+	// The status counts tools, SDKs and services; the evidence used to cover
+	// SDKs alone, so an estate of coding agents and AI services printed
+	// "3 tooling resources documented across the life cycle" with nothing an
+	// assessor could sample. Coding-agent detection is a headline feature, so
+	// that was an ordinary customer rather than a corner case.
 	sortByName(inv.sdks)
 	for _, s := range inv.sdks {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "sdk", Detail: "AI SDK/framework tooling", Link: invLink(ctx)})
+	}
+	sortByName(inv.tools)
+	for _, s := range inv.tools {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "tool", Detail: "AI development tooling — " + s.Category, Link: invLink(ctx)})
+	}
+	sortByName(inv.services)
+	for _, s := range inv.services {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "service", Detail: "AI service used across the life cycle — " + s.Category, Link: invLink(ctx)})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = plural(n, "tooling resource") + " documented across the life cycle."
