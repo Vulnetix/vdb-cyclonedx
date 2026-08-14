@@ -245,6 +245,22 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// The organization's *own* signing posture, from Artifact.signature*.
+	//
+	// Provenance below is about dependencies — packages someone else signed.
+	// This is the manufacturer signing what it publishes, which is what CRA
+	// II.7 ("distribute products and updates through controlled channels"),
+	// ISO A.8.28 and SLSA actually ask about, and every column of it was
+	// unread: II.7 was evidenced with upstream suppliers' attestations.
+	//
+	// SignedArtifactWitnessed counts signatures with a transparency-log entry —
+	// a signature a consumer can confirm was witnessed rather than merely
+	// presented, which is the difference between a claim and a verifiable one.
+	ArtifactTotal            int
+	SignedArtifactCount      int
+	SignedArtifactWitnessed  int
+	ArtifactSignatureFormats []string
+
 	// Native code-host detectors. Two more independent analyses whose results
 	// the reports never counted, so every analysis-breadth claim understated
 	// the assurance actually performed — the same defect as the unread
