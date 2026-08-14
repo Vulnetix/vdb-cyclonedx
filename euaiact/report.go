@@ -245,6 +245,15 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// CycloneDX 1.6 attestation payloads. `declarations` carries conformance
+	// claims with their evidence and signatories; `formulation` records how the
+	// component was built. Both are machine-readable compliance evidence the
+	// platform already ingests, and the compliance reports read neither —
+	// including the CRA controls that ask for a declaration of conformity and
+	// for build provenance.
+	SbomWithDeclarations int
+	SbomWithFormulation  int
+
 	// Changes to a security control itself, from PackageFirewallListAudit: who
 	// added, moved, deactivated or deleted an allow/block entry on the
 	// install-time gate, with the reason they gave.
