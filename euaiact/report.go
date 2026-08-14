@@ -228,6 +228,9 @@ type ReportContext struct {
 	PackageFirewallRequestCount int
 	PackageFirewallBlockCount   int
 	PackageFirewallWarnCount    int
+	// Last decision the gate made, for reports that ask how current the
+	// evidence is rather than how much of it there is.
+	PackageFirewallLastAt int64
 
 	// Threat modelling. A persisted STRIDE/PASTA model with placed elements,
 	// trust zones and recorded annotations is textbook evidence for "risk-based
