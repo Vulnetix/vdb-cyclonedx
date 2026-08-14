@@ -65,7 +65,7 @@ type Component struct {
 func (c Component) isModel() bool {
 	return c.Type == "machine-learning-model" || c.Category == "model"
 }
-func (c Component) isAIService() bool  { return c.Category == "ai-service" }
+func (c Component) isAIService() bool   { return c.Category == "ai-service" }
 func (c Component) isCodingAgent() bool { return c.Category == "coding-agent" }
 func (c Component) isData() bool        { return c.Type == "data" || c.Category == "data" }
 func (c Component) isDataset() bool     { return c.isData() && c.DataKind == "dataset" }
@@ -153,12 +153,12 @@ type ArticleMapping struct {
 
 // Summary is an at-a-glance posture over all mappings, for a dashboard header.
 type Summary struct {
-	Framework    string `json:"framework"`
-	Satisfied    int    `json:"satisfied"`
-	Partial      int    `json:"partial"`
-	Gap          int    `json:"gap"`
-	Informational int   `json:"informational"`
-	NotApplicable int   `json:"notApplicable"`
+	Framework     string `json:"framework"`
+	Satisfied     int    `json:"satisfied"`
+	Partial       int    `json:"partial"`
+	Gap           int    `json:"gap"`
+	Informational int    `json:"informational"`
+	NotApplicable int    `json:"notApplicable"`
 	// Articles is the total number of articles considered.
 	Articles int `json:"articles"`
 }

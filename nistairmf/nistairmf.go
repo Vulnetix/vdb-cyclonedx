@@ -63,13 +63,13 @@ type FunctionMapping struct {
 	Subcategories []SubcategoryMapping `json:"subcategories"`
 }
 
-// Summary is an at-a-glance posture over all subcategories.
 // FrameworkSubcategories is the number of subcategories in the NIST AI RMF 1.0
 // core, across GOVERN, MAP, MEASURE and MANAGE. It is the honest denominator: a
 // reader told "12 of 17 satisfied" with no reference to this number reads a
 // partial mapping as strong coverage of the framework.
 const FrameworkSubcategories = 72
 
+// Summary is an at-a-glance posture over all subcategories.
 type Summary struct {
 	Framework     string `json:"framework"`
 	Satisfied     int    `json:"satisfied"`
@@ -155,19 +155,19 @@ func SummarizeFunctions(fns []FunctionMapping) Summary {
 // ── inventory classification (free funcs over the neutral Component) ──────────
 
 type inventory struct {
-	all         []Component
-	models      []Component
-	services    []Component // ai-service + inference/managed-ai runtimes
-	sdks        []Component
-	agents      []Component // coding-agent + agent infra
-	datasets    []Component
-	training    []Component
-	vectordbs   []Component
+	all          []Component
+	models       []Component
+	services     []Component // ai-service + inference/managed-ai runtimes
+	sdks         []Component
+	agents       []Component // coding-agent + agent infra
+	datasets     []Component
+	training     []Component
+	vectordbs    []Component
 	accelerators []Component
-	evaluations []Component
-	providers   map[string]bool // distinct third-party providers
-	gapped      []Component
-	aiAuthored  int
+	evaluations  []Component
+	providers    map[string]bool // distinct third-party providers
+	gapped       []Component
+	aiAuthored   int
 }
 
 func classify(comps []Component) inventory {
