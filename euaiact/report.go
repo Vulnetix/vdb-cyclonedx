@@ -35,6 +35,16 @@ type ReportContext struct {
 	PeriodEnd   int64
 	Repos       []string // in-scope repo names; empty = org-wide
 
+	// LoadFailures names the evidence sources that failed to load.
+	//
+	// Every counter here defaults to zero, and zero is indistinguishable from a
+	// healthy organization: no open exploited findings, nothing overdue,
+	// nothing outstanding. A query that fails therefore renders as a clean
+	// posture rather than as an error, and the report says "Satisfied" on
+	// evidence it never read. Any surface that shows a verdict has to show this
+	// too, or the verdict is unfalsifiable.
+	LoadFailures []string
+
 	// AI inventory — union of components across in-scope AI-BOM scans.
 	Components          []Component
 	AibomScanCount      int
@@ -848,3 +858,27 @@ func reportArticle72(ctx ReportContext) ArticleMapping {
 // SummarizeReport rolls report-level mappings into a Summary (same shape as
 // SummarizeArticles).
 func SummarizeReport(ms []ArticleMapping) Summary { return SummarizeArticles(ms) }
+
+// NoteLoadFailure records that an evidence source could not be read. Callers
+// pass the source name, not the raw driver error: the message reaches an
+// auditor-facing document, and "Suppression" is useful to them where
+// `SQLSTATE 42703` is not.
+func (c *ReportContext) NoteLoadFailure(source string) {
+	for _, s := range c.LoadFailures {
+		if s == source {
+			return
+		}
+	}
+	c.LoadFailures = append(c.LoadFailures, source)
+}
+
+// DataIntegrityNote is the sentence a report must carry when any evidence
+// source failed to load. Empty when everything loaded.
+func (c ReportContext) DataIntegrityNote() string {
+	if len(c.LoadFailures) == 0 {
+		return ""
+	}
+
+	return "INCOMPLETE DATA: " + strings.Join(c.LoadFailures, ", ") +
+		" could not be read when this report was generated. Counts drawn from those sources are zero because the data is missing, not because nothing was found, so any conclusion resting on them is unsupported."
+}
