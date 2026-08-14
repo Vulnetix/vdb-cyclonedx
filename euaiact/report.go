@@ -24,6 +24,7 @@ const (
 	routePolicies     = "/vdb-suppression-policies"
 	routeGate         = "/vdb-quality-gate"
 	routeLogs         = "/vdb-logs"
+	routeThreatModel  = "/vdb-threat-model"
 )
 
 // ReportContext is the aggregated, source-agnostic evidence view for one
@@ -110,6 +111,19 @@ type ReportContext struct {
 	// Crypto posture.
 	CbomQuantumVulnerable int
 	CbomQuantumSafe       int
+
+	// Threat modelling. A persisted STRIDE/PASTA model with placed elements,
+	// trust zones and recorded annotations is textbook evidence for "risk-based
+	// design" and "secure architecture" — ISO A.8.27, PCI 12.2, CRA I.1 and EU
+	// AI Act Art. 9 all ask for exactly this — and it was read by DSOMM alone,
+	// on its own Input, so no other framework could see it.
+	ThreatModelCount          int
+	ThreatModelsWithZones     int
+	ThreatModelWithAttackPath int
+	ThreatModelElementCount   int
+	ThreatAnnotationCount     int
+	ThreatModelMethodologies  []string
+	ThreatModelLastBuiltAt    int64
 
 	// Governance / policy configuration.
 	HasTriagePolicy  bool
@@ -637,6 +651,21 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 			Detail: "Each evaluation is reproducible from its recorded inputs" +
 				methodologyClause(ctx.SsvcMethodologies),
 			Link: routeFindings,
+		})
+	}
+	// Article 9 requires the risk-management system to run "across the
+	// lifecycle", which starts at design. A persisted threat model is the only
+	// machine record of design-time risk analysis this product holds, and it
+	// was visible to DSOMM alone.
+	if ctx.ThreatModelCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.ThreatModelCount, "threat model"), Kind: "policy",
+			Detail: joinNames(ctx.ThreatModelMethodologies, "documented") + " methodology across " +
+				plural(ctx.ThreatModelElementCount, "placed element") + ", " +
+				plural(ctx.ThreatModelWithAttackPath, "model") + " linked to an attack path, " +
+				plural(ctx.ThreatAnnotationCount, "recorded annotation") +
+				" — risk identified at design time rather than only after a scan",
+			Link: routeThreatModel,
 		})
 	}
 	if ctx.HasRemediationSLA() {
