@@ -251,6 +251,21 @@ type ReportContext struct {
 	// already stored, and no control read it — so ISO A.5.23 evidenced cloud
 	// security from IaC scan counts while a vendor's framework attribution sat
 	// unused beside it.
+	// Human curation of malware determinations, from MalwareCurationAudit:
+	// analysts marking a detection a false positive, retracting that, or adding
+	// and removing indicators — with the actor and the reason.
+	//
+	// This is the malware control being *operated by people*, which is what
+	// ISO A.8.7 and PCI Requirement 5 ask about beyond "a scanner ran". A
+	// false-positive marking is the weakening action: a real detection
+	// dismissed. Counted apart from the total for the same reason as the
+	// firewall list audit.
+	MalwareCurationTotal      int
+	MalwareFalsePositiveSet   int
+	MalwareIocAdded           int
+	MalwareCurationActors     int
+	MalwareCurationWithReason int
+
 	// Notification delivery, from NotificationDispatchLog: whether anything was
 	// actually sent over a configured route, and whether it succeeded.
 	//
