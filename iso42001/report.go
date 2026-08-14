@@ -144,7 +144,14 @@ func rA22(ctx ReportContext) ControlMapping {
 		"The organization documents a policy for the development or use of AI systems, supported by topic-specific policies.")
 	policies := 0
 	if ctx.HasRiskStrategy() {
-		policies++
+		// Cited as evidence either way, but only *counted* as a topic-specific
+		// policy when the organization authored it. A.2.2 asks what the
+		// organization documents; the seeded default is in force for every
+		// tenant that configured nothing, and counting it let three real
+		// policies plus a vendor default reach the four that read Satisfied.
+		if ctx.RiskStrategyIsCustom {
+			policies++
+		}
 		scope := "system default"
 		if ctx.RiskStrategyIsCustom {
 			scope = "organization-authored"

@@ -308,8 +308,21 @@ func (s SnapshotRollup) AutoResolvedTotal() int {
 }
 
 // HasRiskStrategy reports whether an ordered risk-prioritization strategy backs
-// the org's remediation ordering.
+// the org's remediation ordering. This is true for the seeded system default,
+// which every organization gets without configuring anything — so it answers
+// "is a ranking in force", and evidence text that cites it must say which one.
 func (c ReportContext) HasRiskStrategy() bool { return c.RiskStrategyRuleCount > 0 }
+
+// HasOrgRiskStrategy reports whether *the organization* authored the ranking.
+//
+// Controls that ask whether an entity has established, documented or defined a
+// risk-evaluation method must use this rather than HasRiskStrategy: a vendor
+// default in force is a product behaviour, not a decision the organization
+// made, and a report that grades the two the same certifies a customer for
+// having done nothing.
+func (c ReportContext) HasOrgRiskStrategy() bool {
+	return c.RiskStrategyRuleCount > 0 && c.RiskStrategyIsCustom
+}
 
 // QualityGateBlockEnabled reports whether a named build-breaking toggle is on.
 func (c ReportContext) QualityGateBlockEnabled(name string) bool {
@@ -532,9 +545,17 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 	}
 
 	switch {
-	case ctx.HasRiskStrategy() && ctx.HasRemediationSLA() && identified:
+	// Satisfied requires the organization to have authored the ranking. The
+	// seeded system default is in force for every tenant that configured
+	// nothing, and Article 9 obliges the *provider* to establish, implement,
+	// document and maintain the system — a vendor default is not that.
+	case ctx.HasOrgRiskStrategy() && ctx.HasRemediationSLA() && identified:
 		m.Status = StatusSatisfied
-		m.Rationale = "The risk-management system is continuous and documented end to end: risks are identified by recurring assessment, evaluated by an ordered ranking strategy, and treated within committed per-severity windows."
+		m.Rationale = "The risk-management system is continuous and documented end to end: risks are identified by recurring assessment, evaluated by an ordered ranking strategy the organization authored, and treated within committed per-severity windows."
+	case ctx.HasRiskStrategy() && ctx.HasRemediationSLA() && identified:
+		m.Status = StatusPartial
+		m.Rationale = "Risks are identified continuously and treated within committed windows, but they are evaluated by Vulnetix's seeded default ranking rather than a method this organization established — Article 9 places that obligation on the provider."
+		m.Gaps = append(m.Gaps, "The risk-evaluation method in force is the product default, not an organization-authored strategy")
 	case identified:
 		m.Status = StatusPartial
 		m.Rationale = "Risks are identified continuously, but the evaluation method or the treatment commitment is not fully documented."
