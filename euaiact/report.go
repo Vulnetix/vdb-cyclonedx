@@ -101,6 +101,16 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// How secret-scanning alerts were closed, and who overrode the guard.
+	// "Resolved" spans revoking a live credential and deciding not to act on
+	// one, which are opposite claims about the same leak.
+	SecretAlertRevoked       int
+	SecretAlertFalsePositive int
+	SecretAlertWontFix       int // knowingly left in place
+	SecretAlertTestUse       int
+	SecretBypassActors       []string
+	SecretBypassLastAt       int64
+
 	// What the organization actually publishes to consumers, from the TEA
 	// publisher tables. Artifact.signature* covers documents this platform
 	// holds; these are the formats a consumer downloads, with the signature,
