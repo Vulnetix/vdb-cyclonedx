@@ -245,6 +245,16 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// Code-host access control, from GitHubOrganization. Distinct from
+	// SsoEnforced, which is authentication into *Vulnetix*: the source code
+	// lives in the code host, so an organization enforcing SSO here while its
+	// GitHub organization requires no second factor has the weaker control on
+	// the more valuable asset. ISO A.5.15-A.5.18 and A.8.5, and PCI 7 and 8,
+	// ask about access to the systems that hold the data — and every one of
+	// these columns was unread.
+	GitHubOrgsInScope      int
+	GitHubOrgsTwoFactor    int // organizations requiring 2FA of all members
+	GitHubDefaultRepoPerms []string
 	// The organization's *own* signing posture, from Artifact.signature*.
 	//
 	// Provenance below is about dependencies — packages someone else signed.
