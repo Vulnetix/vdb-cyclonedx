@@ -304,6 +304,20 @@ type ReportContext struct {
 	NotificationFailed    int
 	NotificationProviders []string
 
+	// The deployed, internet-facing attack surface: resources with a traced
+	// path from an ingress (load balancer, API gateway, public subnet) to the
+	// resource itself, with the reachable ports.
+	//
+	// CRA I.2(j) is "attack surface reduction" and evidenced the *supply-chain*
+	// surface — package firewall, container scans, call-path reachability. All
+	// real, and none of it the surface an attacker meets first. CloudCritFindings
+	// is the companion: a CVE scored in its actual cloud context rather than in
+	// the abstract.
+	CloudExposedResources int
+	CloudExposureIngress  []string
+	CloudExposedPorts     int
+	CloudCritFindings     int
+
 	CloudIssueTotal     int
 	CloudIssueOpen      int
 	CloudIssueMapped    int // issues carrying a security-framework attribution
