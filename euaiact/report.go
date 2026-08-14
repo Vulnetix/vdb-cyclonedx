@@ -245,6 +245,21 @@ type ReportContext struct {
 	SecretAlertTotal    int
 	SecretAlertResolved int
 	SecretAlertOpen     int
+	// Changes to a security control itself, from PackageFirewallListAudit: who
+	// added, moved, deactivated or deleted an allow/block entry on the
+	// install-time gate, with the reason they gave.
+	//
+	// PCI 10.2 requires audit logs of changes to security controls, and ISO
+	// A.8.15 asks for logging of administrative activity — both were evidenced
+	// with *access* records, which are a different thing: access says someone
+	// read something, this says someone changed the guard. Weakening actions
+	// are counted separately, because "the allowlist changed 40 times" and "the
+	// gate was disabled 40 times" are not the same sentence.
+	FirewallListChanges       int
+	FirewallListWeakened      int
+	FirewallChangeActors      int
+	FirewallChangesWithReason int
+
 	// Code-host access control, from GitHubOrganization. Distinct from
 	// SsoEnforced, which is authentication into *Vulnetix*: the source code
 	// lives in the code host, so an organization enforcing SSO here while its
