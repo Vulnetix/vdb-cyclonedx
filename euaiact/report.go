@@ -251,6 +251,17 @@ type ReportContext struct {
 	// already stored, and no control read it — so ISO A.5.23 evidenced cloud
 	// security from IaC scan counts while a vendor's framework attribution sat
 	// unused beside it.
+	// Notification delivery, from NotificationDispatchLog: whether anything was
+	// actually sent over a configured route, and whether it succeeded.
+	//
+	// The incident section could say a route was *configured* and not whether
+	// it had ever carried anything, so "delivery untested" was as far as it
+	// could go. A failed dispatch is the sharper signal: a configured route
+	// that silently errors is worse than none, because it reads as covered.
+	NotificationDelivered int
+	NotificationFailed    int
+	NotificationProviders []string
+
 	CloudIssueTotal     int
 	CloudIssueOpen      int
 	CloudIssueMapped    int // issues carrying a security-framework attribution
