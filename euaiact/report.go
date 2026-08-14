@@ -112,6 +112,19 @@ type ReportContext struct {
 	CbomQuantumVulnerable int
 	CbomQuantumSafe       int
 
+	// Package Firewall: the install-time supply-chain gate. A BLOCK is a dated
+	// record of a malicious or policy-violating package being stopped before it
+	// entered the build, which is direct evidence for OWASP A03 — and A03 could
+	// not see it, because the posture was loaded separately by the assessor
+	// frameworks, by CRA and by Scan Coverage, and never onto the shared
+	// context. Config rows are keyed on VdbOrganization, so the loader routes
+	// through vdbOrgUuidsForSaas.
+	PackageFirewallConfigured   bool
+	PackageFirewallToggles      []string
+	PackageFirewallRequestCount int
+	PackageFirewallBlockCount   int
+	PackageFirewallWarnCount    int
+
 	// Threat modelling. A persisted STRIDE/PASTA model with placed elements,
 	// trust zones and recorded annotations is textbook evidence for "risk-based
 	// design" and "secure architecture" — ISO A.8.27, PCI 12.2, CRA I.1 and EU
