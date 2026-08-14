@@ -46,10 +46,26 @@ type ReportContext struct {
 	LoadFailures []string
 
 	// AI inventory — union of components across in-scope AI-BOM scans.
-	Components          []Component
-	AibomScanCount      int
-	LatestAibomScanUUID string
-	PriorScanCount      int // AI-BOM scans over time (monitoring signal)
+	Components     []Component
+	AibomScanCount int
+
+	// ManualEvidenceByControl is uploaded evidence files per control id.
+	//
+	// Fourteen rationales across the three AI-governance frameworks tell the
+	// customer to attach something — "instructions-for-use are provider-authored
+	// documents; upload them as manual evidence" — and nothing consumed it: only
+	// ISO 27001 and DSOMM were handed the counts, so in these frameworks an
+	// upload changed no status and the instruction was inert. Article 13 in
+	// particular was hardwired not-applicable, so the one control whose *only*
+	// path is an upload could never move.
+	//
+	// Attaching a document is a human act, which is why it promotes here as it
+	// does in ISO 27001. What it cannot do is verify the document's contents, so
+	// the rationale of anything promoted this way says the claim rests on
+	// customer-supplied evidence.
+	ManualEvidenceByControl map[string]int
+	LatestAibomScanUUID     string
+	PriorScanCount          int // AI-BOM scans over time (monitoring signal)
 
 	// Findings / risk identification + human triage.
 	FindingTotal            int
@@ -307,6 +323,13 @@ func (s SnapshotRollup) AutoResolvedTotal() int {
 	return s.ReportedResolved + s.DisappearedResolved + s.ResolvedByPolicy
 }
 
+// ManualEvidenceCount returns how many evidence files the customer attached to
+// a control. Zero when none, including when the map itself is absent (the
+// per-scan mappers, which have no report to attach anything to).
+func (c ReportContext) ManualEvidenceCount(controlID string) int {
+	return c.ManualEvidenceByControl[controlID]
+}
+
 // HasRiskStrategy reports whether an ordered risk-prioritization strategy backs
 // the org's remediation ordering. This is true for the seeded system default,
 // which every organization gets without configuring anything — so it answers
@@ -398,10 +421,34 @@ func mapReportArticles(ctx ReportContext) []ArticleMapping {
 		reportArticle50(ctx),
 		reportArticle51(ctx),
 		reportArticle72(ctx),
-		notEvidenceable("Article 13", "Instructions for use",
-			"Providers must supply deployers with instructions covering the system's characteristics, capabilities and limitations.",
-			"Not evaluable from Vulnetix data — instructions-for-use are provider-authored documents; upload them as manual evidence."),
+		reportArticle13(ctx),
 	}
+}
+
+// reportArticle13 covers instructions for use. Vulnetix holds none of this —
+// it is a provider-authored document — so the article's only path is the
+// customer attaching it. That path used to be closed: the article was
+// hardwired not-applicable while its own rationale asked for an upload.
+func reportArticle13(ctx ReportContext) ArticleMapping {
+	const id = "Article 13"
+	m := article(id, "Instructions for use",
+		"Providers must supply deployers with instructions covering the system's characteristics, capabilities and limitations.")
+	n := ctx.ManualEvidenceCount(id)
+	if n == 0 {
+		m.Status = StatusNotApplicable
+		m.Rationale = "Not evaluable from Vulnetix data — instructions-for-use are provider-authored documents; upload them as manual evidence against this article and it will be assessed."
+
+		return m
+	}
+	m.Status = StatusSatisfied
+	m.Rationale = "Satisfied on customer-supplied evidence: " + plural(n, "document") +
+		" attached to this article. Vulnetix does not read the contents — an assessor samples the attachment itself."
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: plural(n, "attached document"), Kind: "manual",
+		Detail: "Instructions for use, supplied by the organization",
+	})
+
+	return m
 }
 
 func classifyReport(ctx ReportContext) (models, services, datasets, training, accelerators, agents []Component, gapped int) {
@@ -907,8 +954,22 @@ func reportArticle51(ctx ReportContext) ArticleMapping {
 	for _, g := range gpai {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: g.Name, Kind: "model", Detail: "General-purpose model family " + g.Family, Link: invLink(ctx)})
 	}
+	// The FLOP figure is the one thing that decides systemic-risk
+	// classification and the one thing this product cannot measure, so the
+	// customer's own attestation is the only way this article moves.
+	if n := ctx.ManualEvidenceCount("Articles 51-55"); n > 0 {
+		m.Status = StatusSatisfied
+		m.Rationale = "GPAI/compute signals are present, and the systemic-risk assessment is supplied as customer evidence (" +
+			plural(n, "attached document") + "). Vulnetix does not measure training compute — an assessor samples the attachment."
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "Systemic-risk / training-compute assessment, supplied by the organization",
+		})
+
+		return m
+	}
 	m.Status = StatusInformational
-	m.Rationale = "GPAI/compute signals are present. The systemic-risk threshold is a training-compute (FLOP) figure Vulnetix does not measure — a human must assess."
+	m.Rationale = "GPAI/compute signals are present. The systemic-risk threshold is a training-compute (FLOP) figure Vulnetix does not measure — attach the assessment as manual evidence and it will be reported."
 	m.Gaps = append(m.Gaps, "Training compute (FLOP) not measured")
 	return m
 }
