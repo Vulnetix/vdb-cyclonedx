@@ -359,6 +359,12 @@ type ReportContext struct {
 	CloudIssueTotal     int
 	CloudIssueOpen      int
 	CloudIssueMapped    int // issues carrying a security-framework attribution
+	// Disposition, from the vendor's own fields: how the estate is managed
+	// rather than how large it is.
+	CloudIssueResolved int
+	CloudIssueOverdue  int // past dueAt, still open
+	CloudIssueTicketed int // tracked in a ticketing system
+	CloudIssueAssigned int // has a named owner
 	CloudFrameworkNames []string
 
 	// CycloneDX 1.6 attestation payloads. `declarations` carries conformance
