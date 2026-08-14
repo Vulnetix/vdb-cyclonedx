@@ -101,6 +101,16 @@ type ReportContext struct {
 	// Technical documentation.
 	CycloneDXCount int
 	SPDXCount      int
+	// Suppression governance. A suppression is a risk acceptance: who made it,
+	// why, when it is reviewed and when it lapses are the difference between an
+	// accepted risk and a silenced one. All four columns are stored.
+	SuppressionWithOwner  int
+	SuppressionWithReason int
+	SuppressionReviewed   int // carries a review date
+	SuppressionExpiring   int // carries an expiry
+	SuppressionOverdue    int // review date passed, still active
+	SuppressionExpired    int // past its own expiry, still active
+
 	// Code-host repository controls. Branch protection is the mechanism that
 	// makes review mandatory, and GitHub's own security-and-analysis block says
 	// which platform controls are switched on for each repository — the
