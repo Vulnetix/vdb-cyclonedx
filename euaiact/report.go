@@ -14,20 +14,27 @@ import (
 	"strings"
 )
 
-// Product route paths for evidence links (stable vdb-* pages).
+// Product route paths for evidence links.
+//
+// Every one of these was a `/vdb-*` path, and the console moved to `/resolve/*`
+// long enough ago that `/vdb-console` is now a redirect to it. So every
+// evidence link the three AI-governance reports emitted — hundreds of them,
+// across every article — pointed at a route that no longer exists: the reader
+// following a citation landed on the 404 page. A link that 404s is worse than
+// no link, because it looks like it works until it is followed.
 const (
-	routeFindings     = "/vdb-findings"
-	routeScans        = "/vdb-scanner-results"
-	routeInventory    = "/vdb-ai-inventory"
-	routeCrypto       = "/vdb-crypto-inventory"
-	routeUploads      = "/vdb-uploads"
-	routeLicenses     = "/vdb-licenses"
-	routeAiFirewall   = "/vdb-ai-firewall"
-	routeRiskStrategy = "/vdb-risk-strategy"
-	routePolicies     = "/vdb-suppression-policies"
-	routeGate         = "/vdb-quality-gate"
-	routeLogs         = "/vdb-logs"
-	routeThreatModel  = "/vdb-threat-model"
+	routeFindings     = "/resolve/findings"
+	routeScans        = "/resolve/scanner-results"
+	routeInventory    = "/resolve/ai-inventory"
+	routeCrypto       = "/resolve/crypto-inventory"
+	routeUploads      = "/resolve/uploads"
+	routeLicenses     = "/resolve/licenses"
+	routeAiFirewall   = "/resolve/ai-firewall"
+	routeRiskStrategy = "/resolve/risk-strategy"
+	routePolicies     = "/resolve/suppression-policies"
+	routeGate         = "/resolve/quality-gate"
+	routeLogs         = "/resolve/logs"
+	routeThreatModel  = "/resolve/threat-model"
 )
 
 // ReachabilitySample is one call-path verdict with the location that produced
@@ -790,12 +797,16 @@ func mapReportArticles(ctx ReportContext) []ArticleMapping {
 		reportArticle10(ctx),
 		reportArticle11(ctx),
 		reportArticle12(ctx),
+		// Article 13 sat last, after 72, and no consumer sorts — so the console
+		// and the PDF both listed it out of order in a document whose reader
+		// navigates by article number.
+		reportArticle13(ctx),
 		reportArticle14(ctx),
 		reportArticle15(ctx),
 		reportArticle50(ctx),
 		reportArticle51(ctx),
 		reportArticle72(ctx),
-		reportArticle13(ctx),
+		reportArticle73(ctx),
 	}
 }
 
@@ -1532,4 +1543,104 @@ func methodologyClause(methodologies []string) string {
 	}
 
 	return " using " + joinNames(methodologies, "the configured methodology")
+}
+
+// reportArticle73 covers serious-incident reporting. Article 73 obliges a
+// provider to report a serious incident to the market-surveillance authority
+// within days of becoming aware of it — which presupposes that incidents are
+// detected, dispositioned by a person, and delivered somewhere a person reads.
+//
+// The article was absent from the report entirely while every signal it needs
+// was loaded and unread: the alert count, the status and type breakdowns, the
+// acknowledgement and dismissal split, the overdue count and the notification
+// routes. Vulnetix cannot evidence the report *to the authority* — that is a
+// filing, made by a person, outside this system — so the article reports the
+// detection and disposition half and says plainly which half is missing.
+func reportArticle73(ctx ReportContext) ArticleMapping {
+	const id = "Article 73"
+	m := article(id, "Reporting of serious incidents",
+		"Providers must report serious incidents to the market-surveillance authority, and immediately investigate them.")
+	// The filing to the authority is made by a person, outside this system, so
+	// the article's last step is the customer attaching the record of it — the
+	// same path Article 13 takes. Without that path the article would be capped
+	// below satisfied for every organization however well it handled incidents.
+	attached := ctx.ManualEvidenceCount(id)
+	if ctx.AlertCount == 0 {
+		m.Status = StatusInformational
+		m.Rationale = "No alert was raised on this estate in the period, so there is nothing for the incident process to have handled. The reporting obligation itself — the filing to the authority and its timing — is recorded outside Vulnetix."
+		m.Gaps = append(m.Gaps, "Incident reporting to the market-surveillance authority needs manual evidence")
+
+		return m
+	}
+	// Alerts are the detection half. The link is deliberately empty: no console
+	// page renders them today, and a link that 404s is worse than none.
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: plural(ctx.AlertCount, "alert"), Kind: "log",
+		Detail: "raised on this estate in the period" + alertTypeClause(ctx.AlertByType),
+	})
+	// Whether a person acted, which is what "immediately investigate" asks. A
+	// dismissal is the weakening action and is named separately rather than
+	// folded into "handled".
+	if ctx.AlertsAcknowledged > 0 || ctx.AlertsDismissed > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Alert disposition", Kind: "log",
+			Detail: itoa(ctx.AlertsAcknowledged) + " acknowledged by " + plural(ctx.AlertsAcknowledgers, "responder") +
+				", " + itoa(ctx.AlertsDismissed) + " dismissed without a recorded action",
+		})
+	}
+	if len(ctx.NotifyIntegrations) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Notification routes", Kind: "policy",
+			Detail: "alerts are delivered to " + joinNames(ctx.NotifyIntegrations, "the configured routes"),
+		})
+	}
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's record of what was reported to the market-surveillance authority, and when",
+		})
+	} else {
+		m.Gaps = append(m.Gaps, "Reporting to the market-surveillance authority, and its timing, need manual evidence")
+	}
+	switch {
+	case ctx.AlertsOverdue > 0:
+		m.Status = StatusGap
+		m.Rationale = plural(ctx.AlertsOverdue, "alert") + " passed the due date the organization set and remain neither resolved nor dismissed — incidents are being detected and not worked, which is the half of Article 73 this system can see failing."
+		m.Gaps = append(m.Gaps, plural(ctx.AlertsOverdue, "alert")+" past its due date and unresolved")
+	case ctx.AlertsAcknowledged == 0:
+		m.Status = StatusGap
+		m.Rationale = plural(ctx.AlertCount, "alert") + " raised and none acknowledged by a person — detection is running, investigation is not evidenced."
+		m.Gaps = append(m.Gaps, "No alert carries a recorded human acknowledgement")
+	case len(ctx.NotifyIntegrations) == 0:
+		m.Status = StatusPartial
+		m.Rationale = "Alerts are raised and acknowledged, but no delivery route is configured, so an incident waits for someone to open the console rather than reaching them."
+		m.Gaps = append(m.Gaps, "No notification route configured")
+	case attached > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Incidents are detected, acknowledged by a named responder and delivered to a configured route, and the organization has attached its record of what was reported to the market-surveillance authority. Vulnetix does not read the attachment — an assessor samples it."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Incidents are detected, acknowledged by a named responder and delivered to a route the organization configured. The report to the market-surveillance authority is a filing made outside this system and needs manual evidence."
+	}
+
+	return m
+}
+
+// alertTypeClause names what the alerts were about, so the count is not a bare
+// number in a document about serious incidents.
+func alertTypeClause(byType map[string]int) string {
+	if len(byType) == 0 {
+		return ""
+	}
+	kinds := make([]string, 0, len(byType))
+	for k := range byType {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	parts := make([]string, 0, len(kinds))
+	for _, k := range kinds {
+		parts = append(parts, itoa(byType[k])+" "+strings.ReplaceAll(k, "_", " "))
+	}
+
+	return ": " + strings.Join(parts, ", ")
 }

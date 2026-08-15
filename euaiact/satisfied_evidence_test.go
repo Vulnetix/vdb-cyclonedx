@@ -183,7 +183,7 @@ func TestInventoryEvidenceCarriesTheScanRef(t *testing.T) {
 	count := func(items []euaiact.EvidenceItem) stamped {
 		var s stamped
 		for _, e := range items {
-			if !strings.HasPrefix(e.Link, "/vdb-ai-inventory") {
+			if !strings.HasPrefix(e.Link, "/resolve/ai-inventory") {
 				continue
 			}
 			s.total++
@@ -224,9 +224,9 @@ func TestStampInventoryRefsLeavesAggregatesAlone(t *testing.T) {
 	// Evidence that does not come from the inventory has no scan behind it, and
 	// inventing one would be worse than leaving it blank.
 	items := []euaiact.EvidenceItem{
-		{Component: "ScannerRun", Link: "/vdb-scanner-results"},
-		{Component: "Model", Link: "/vdb-ai-inventory/x"},
-		{Component: "Pinned", Link: "/vdb-ai-inventory", RefID: "already-set"},
+		{Component: "ScannerRun", Link: "/resolve/scanner-results"},
+		{Component: "Model", Link: "/resolve/ai-inventory/x"},
+		{Component: "Pinned", Link: "/resolve/ai-inventory", RefID: "already-set"},
 	}
 	euaiact.StampInventoryRefs(euaiact.ReportContext{LatestAibomScanUUID: "scan-1"}, items)
 
@@ -242,7 +242,7 @@ func TestStampInventoryRefsLeavesAggregatesAlone(t *testing.T) {
 }
 
 func TestStampInventoryRefsIsANoopWithoutAScan(t *testing.T) {
-	items := []euaiact.EvidenceItem{{Link: "/vdb-ai-inventory"}}
+	items := []euaiact.EvidenceItem{{Link: "/resolve/ai-inventory"}}
 	euaiact.StampInventoryRefs(euaiact.ReportContext{}, items)
 	if items[0].RefID != "" {
 		t.Errorf("stamped %q with no scan on record", items[0].RefID)

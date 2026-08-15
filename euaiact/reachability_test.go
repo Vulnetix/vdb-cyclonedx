@@ -63,6 +63,14 @@ func maximalCtx() ReportContext {
 		SecretAlertTotal: 5, SecretAlertResolved: 5,
 		SonarFindingTotal: 40, SonarFindingOpen: 2, SonarRuleTypes: []string{"BUG", "VULNERABILITY"},
 		Snapshot: SnapshotRollup{Ingested: 4000, Prioritized: 3800, Outcomes: 200, PatchAvailable: 300},
+		// Incident signals. Their absence from this fixture is part of why
+		// Article 73 went unwritten for so long: the sweep that asks "can every
+		// article reach satisfied" could not ask it of an article nobody had
+		// written, and the maximal context did not carry the inputs either.
+		AlertCount: 12, AlertByStatus: map[string]int{"resolved": 10, "acknowledged": 2},
+		AlertByType:        map[string]int{"zero_day": 4, "ransomware": 8},
+		AlertsAcknowledged: 12, AlertsAcknowledgers: 3, AlertsDismissed: 0, AlertsOverdue: 0,
+		NotifyIntegrations: []string{"slack", "webhook"},
 	}
 }
 
@@ -76,6 +84,7 @@ var documentOnly = map[string]string{
 	"Article 6":      "Annex III classification turns on the system's purpose, not on its components",
 	"Article 13":     "instructions for use are a provider-authored document",
 	"Articles 51-55": "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
+	"Article 73":     "the filing to the market-surveillance authority is made by a person outside this system; detection and disposition are evidenced, the report itself is attached",
 }
 
 func TestNoArticleIsCappedBelowSatisfied(t *testing.T) {

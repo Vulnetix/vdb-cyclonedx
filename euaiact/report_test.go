@@ -193,11 +193,11 @@ func TestReportEvidenceItemLink(t *testing.T) {
 	a14 := findRep(MapReport(richReportCtx()), "Article 14")
 	hasFindingsLink := false
 	for _, e := range a14.Evidence {
-		if e.Link == "/vdb-findings" {
+		if e.Link == "/resolve/findings" {
 			hasFindingsLink = true
 		}
 	}
 	if !hasFindingsLink {
-		t.Errorf("Art 14 should link human triage to /vdb-findings: %+v", a14.Evidence)
+		t.Errorf("Art 14 should link human triage to /resolve/findings: %+v", a14.Evidence)
 	}
 }
