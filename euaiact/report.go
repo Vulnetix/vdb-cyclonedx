@@ -129,6 +129,14 @@ type ReportContext struct {
 	FindingTotal            int
 	FindingByCategory       map[string]int // sast|sca|secrets|iac|oci|license
 	FindingBySeverity       map[string]int
+	// FindingsPredictionOnly counts findings carrying a CESS prediction score
+	// and no impact score. They read "unknown" in every severity breakdown —
+	// correctly, because severity is impact and CESS is a forecast — and the
+	// compliance split used to fold CESS into the impact GREATEST, so one
+	// finding read `critical` here and `unknown` everywhere else in the
+	// product. Counted separately so a report can say why they are unknown
+	// rather than leaving a reader to conclude they were never scored.
+	FindingsPredictionOnly int
 	TriagedTotal            int
 	AffectedTotal           int
 	NotAffectedTotal        int
