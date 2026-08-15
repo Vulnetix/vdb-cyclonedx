@@ -19,6 +19,7 @@ package nistairmf
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/Vulnetix/vdb-cyclonedx/euaiact"
 )
@@ -598,4 +599,13 @@ func itoa(n int) string {
 		b[i] = '-'
 	}
 	return string(b[i:])
+}
+
+// joinNames renders a list for evidence prose, with a fallback when empty.
+func joinNames(list []string, fallback string) string {
+	if len(list) == 0 {
+		return fallback
+	}
+
+	return strings.Join(list, ", ")
 }

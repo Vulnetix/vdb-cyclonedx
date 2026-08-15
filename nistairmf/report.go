@@ -10,14 +10,19 @@ import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
 // handler builds one context for every framework).
 type ReportContext = euaiact.ReportContext
 
+// Console routes. These were `/vdb-*` paths, which the console has not served
+// since it moved to `/resolve/*` — so every evidence link in this report landed
+// the reader on the 404 page.
 const (
-	routeFindings     = "/vdb-findings"
-	routeScans        = "/vdb-scanner-results"
-	routeInventory    = "/vdb-ai-inventory"
-	routeAiFirewall   = "/vdb-ai-firewall"
-	routeRiskStrategy = "/vdb-risk-strategy"
-	routePolicies     = "/vdb-suppression-policies"
-	routeGate         = "/vdb-quality-gate"
+	routeFindings     = "/resolve/findings"
+	routeScans        = "/resolve/scanner-results"
+	routeInventory    = "/resolve/ai-inventory"
+	routeAiFirewall   = "/resolve/ai-firewall"
+	routeRiskStrategy = "/resolve/risk-strategy"
+	routePolicies     = "/resolve/suppression-policies"
+	routeGate         = "/resolve/quality-gate"
+	routeLogs         = "/resolve/logs"
+	routeThreatModel  = "/resolve/threat-model"
 )
 
 func quoted(s string) string { return `"` + s + `"` }
@@ -41,8 +46,10 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 			Function: "GOVERN", Title: "Govern",
 			Description: "Policies, accountability and inventory mechanisms for AI are in place.",
 			Subcategories: []SubcategoryMapping{
+				rGovern12(ctx),
 				rGovern16(ctx, inv),
 				rGovern31(ctx),
+				rGovern41(ctx),
 				rGovern61(ctx, inv),
 				// Implemented for the per-scan mapper and never called here, so
 				// the report — which sees strictly more evidence — covered less
@@ -57,6 +64,7 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 				rMap11(ctx, inv),
 				rMap21(ctx, inv),
 				rMap22(ctx, inv),
+				rMap31(ctx, inv),
 				rMap41(ctx, inv),
 				// Not evidenceable, and emitted as such: a subcategory absent
 				// from the report cannot be graded and nothing says it is gone.
@@ -69,6 +77,7 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 			Subcategories: []SubcategoryMapping{
 				rMeasure11(ctx),
 				rMeasure21(ctx),
+				rMeasure27(ctx),
 				rMeasure31(ctx),
 			},
 		},
@@ -78,6 +87,7 @@ func mapReportFunctions(ctx ReportContext) []FunctionMapping {
 			Subcategories: []SubcategoryMapping{
 				rManage11(ctx),
 				rManage21(ctx),
+				rManage22(ctx),
 				rManage31(ctx, inv),
 				rManage41(ctx),
 				rManage43(ctx, inv),
@@ -150,10 +160,10 @@ func rGovern31(ctx ReportContext) SubcategoryMapping {
 		})
 	}
 	if ctx.HasMethodology {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: "scoring methodology", Kind: "policy", Detail: "SSVC/scoring decision methodology configured"})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "scoring methodology", Kind: "policy", Detail: "SSVC/scoring decision methodology configured", Link: routeRiskStrategy})
 	}
 	if ctx.HasLicensePolicy {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: "license policy", Kind: "policy", Detail: "License-analysis policy configured"})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: "license policy", Kind: "policy", Detail: "License-analysis policy configured", Link: routePolicies})
 	}
 	if ctx.AiFirewallConfigured {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: "AI Firewall policy", Kind: "policy", Detail: plural(ctx.AiFirewallGuardrailCount, "guardrail") + " plus provider/model allow-deny enforced at the gateway", Link: routeAiFirewall})
@@ -279,7 +289,7 @@ func rMap22(ctx ReportContext, inv inventory) SubcategoryMapping {
 	}
 	sortByName(inv.gapped)
 	for _, c := range inv.gapped {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: c.Name, Kind: "log", Detail: "Documented knowledge limit: " + c.GapReason})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: c.Name, Kind: "log", Detail: "Documented knowledge limit: " + c.GapReason, Link: invLink(ctx)})
 	}
 	m.Status = StatusSatisfied
 	m.Rationale = "The inventory explicitly documents its knowledge limits rather than hiding them."
@@ -448,7 +458,7 @@ func rManage11(ctx ReportContext) SubcategoryMapping {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FixedTotal, "fixed finding"), Kind: "finding", Detail: "Risks remediated", Link: routeFindings})
 	}
 	if ctx.OpenVexCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.OpenVexCount, "VEX statement"), Kind: "vex", Detail: "Documented risk-treatment decisions"})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.OpenVexCount, "VEX statement"), Kind: "vex", Detail: "Documented risk-treatment decisions", Link: routeFindings})
 	}
 	if ctx.SuppressionCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Documented risk-acceptance decisions"})
@@ -625,13 +635,31 @@ func rManage43(ctx ReportContext, inv inventory) SubcategoryMapping {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(revisions, "inventory revision"), Kind: "provenance", Detail: "AI inventory re-taken over the period, tracking what changed", Link: routeInventory})
 	}
 
-	// Communication to stakeholders is never observed, so this caps at partial
-	// even with both change-tracking signals present — the subcategory is two
-	// obligations and Vulnetix evidences one.
+	// Communication to stakeholders *is* observed: alerts raised, acknowledged
+	// by named responders and delivered over configured routes. The rationale
+	// said no artifact evidences it while every one of those signals sat on the
+	// same struct, read by two sibling frameworks and not by this one.
+	communicated := ctx.AlertCount > 0 && len(ctx.NotifyIntegrations) > 0
+	if ctx.AlertCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AlertCount, "alert"), Kind: "log",
+			Detail: "raised in the period, " + itoa(ctx.AlertsAcknowledged) + " acknowledged by " + plural(ctx.AlertsAcknowledgers, "responder") + " and " + itoa(ctx.AlertsDismissed) + " dismissed without a recorded action",
+		})
+	}
+	if len(ctx.NotifyIntegrations) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Notification routes", Kind: "policy",
+			Detail: "incidents are delivered to " + joinNames(ctx.NotifyIntegrations, "the configured routes") + ", so they reach people rather than waiting to be found",
+		})
+	}
 	switch {
+	case inv.aiAuthored > 0 && revisions > 1 && communicated:
+		m.Status = StatusSatisfied
+		m.Rationale = "Changes to the AI in use are tracked by AI-authored commit history and by repeated inventory revisions, and incidents are delivered to named responders over configured routes."
 	case inv.aiAuthored > 0 && revisions > 1:
 		m.Status = StatusPartial
-		m.Rationale = "Changes to the AI in use are tracked both by AI-authored commit history and by repeated inventory revisions. Communicating incidents and errors to stakeholders is a human process no artifact evidences."
+		m.Rationale = "Changes to the AI in use are tracked both by AI-authored commit history and by repeated inventory revisions. No incident was raised and delivered in the period, so the communication half is unevidenced."
+		m.Gaps = append(m.Gaps, "No incident raised and delivered to a stakeholder route")
 	case inv.aiAuthored > 0 || revisions > 1:
 		m.Status = StatusPartial
 		m.Rationale = "Some change tracking is evidenced (commit history or repeated inventories). The other half of this subcategory — communicating incidents to stakeholders — is not evidenced by any artifact."
@@ -646,3 +674,226 @@ func rManage43(ctx ReportContext, inv inventory) SubcategoryMapping {
 
 // SummarizeReport rolls report-level function mappings into a Summary.
 func SummarizeReport(fns []FunctionMapping) Summary { return SummarizeFunctions(fns) }
+
+// ── subcategories added because their evidence was already loaded ────────────
+//
+// 55 of the 72 AI RMF subcategories have no mapper, and the report discloses
+// that shortfall — but six of them were backable from fields the shared context
+// already carried and two sibling frameworks already read. A subcategory absent
+// from a report cannot be graded, and the reader has no way to know it was
+// omitted for want of a mapper rather than for want of evidence.
+
+// rGovern41 covers the organizational risk culture: whether risks are
+// identified deliberately rather than discovered. A threat model is that
+// practice written down.
+func rGovern41(ctx ReportContext) SubcategoryMapping {
+	m := sub("GOVERN", "GOVERN 4.1", "Risk culture and documented practice",
+		"Organizational policies and practices are in place to foster a critical thinking and safety-first mindset in the design, development and deployment of AI systems.")
+	if ctx.ThreatModelCount == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No threat model is recorded for this scope — risks are discovered as findings rather than identified in advance."
+		m.Gaps = append(m.Gaps, "No threat model on record")
+
+		return m
+	}
+	detail := plural(ctx.ThreatModelCount, "threat model") + " built for this scope"
+	if len(ctx.ThreatModelMethodologies) > 0 {
+		detail += " using " + joinNames(ctx.ThreatModelMethodologies, "the configured methodology")
+	}
+	if ctx.ThreatModelElementCount > 0 {
+		detail += ", " + plural(ctx.ThreatModelElementCount, "placed element")
+	}
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: "Threat model", Kind: "policy", Detail: detail, Link: routeThreatModel,
+	})
+	if ctx.ThreatModelWithAttackPath > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.ThreatModelWithAttackPath, "model"), Kind: "analysis",
+			Detail: "carries an attack path, so the identified risk is traced through the estate rather than listed", Link: routeThreatModel,
+		})
+	}
+	if ctx.ThreatModelWithAttackPath > 0 {
+		m.Status = StatusSatisfied
+		m.Rationale = "Risks are identified in advance: threat models are built for this scope and traced through attack paths."
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "A threat model exists for this scope, but none traces an attack path through the estate, so the identified risks are not connected to the findings they would produce."
+	m.Gaps = append(m.Gaps, "No threat model carries an attack path")
+
+	return m
+}
+
+// rMeasure27 covers security and resilience measurement: whether the system is
+// tested against the criteria the organization set, and whether those criteria
+// are enforced rather than advisory.
+func rMeasure27(ctx ReportContext) SubcategoryMapping {
+	m := sub("MEASURE", "MEASURE 2.7", "Security and resilience examined",
+		"AI system security and resilience are evaluated and documented.")
+	if ctx.SarifResultTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SarifResultTotal, "static-analysis result"), Kind: "finding",
+			Detail: itoa(ctx.SarifResultReviewed) + " carry a disposition, " + itoa(ctx.SarifResultReviewedBy) + " name the reviewer who made it",
+			Link:   routeFindings,
+		})
+	}
+	if ctx.QualityGateConfigured {
+		detail := "blocks " + joinNames(ctx.QualityGateBlocks, "no categories") + " at severity floor " + quoted(ctx.QualityGateSeverity)
+		if ctx.QualityGateExploits != "" {
+			detail += " and exploit maturity " + quoted(ctx.QualityGateExploits)
+		}
+		if ctx.QualityGateVersionLag > 0 {
+			detail += ", refusing a dependency more than " + plural(ctx.QualityGateVersionLag, "version") + " behind"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Acceptance criteria", Kind: "policy", Detail: detail, Link: routeGate,
+		})
+	}
+	switch {
+	case ctx.SarifResultTotal == 0 && !ctx.QualityGateConfigured:
+		m.Status = StatusGap
+		m.Rationale = "No static analysis and no declared acceptance criteria — security and resilience are not being examined against anything."
+		m.Gaps = append(m.Gaps, "No security testing and no acceptance criteria")
+	case ctx.SarifResultReviewedBy > 0 && ctx.QualityGateConfigured:
+		m.Status = StatusSatisfied
+		m.Rationale = "Security is examined by static analysis whose results reach a named reviewer, against acceptance criteria the build enforces."
+	case ctx.QualityGateConfigured:
+		m.Status = StatusPartial
+		m.Rationale = "Acceptance criteria are declared and enforced at build time, but no analysis result names the person who dispositioned it, so the examination is machine-only."
+		m.Gaps = append(m.Gaps, "No analysis result names its reviewer")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Static analysis examines the system, but no acceptance criteria are enforced, so a result that fails the examination can still ship."
+		m.Gaps = append(m.Gaps, "No enforced acceptance criteria")
+	}
+
+	return m
+}
+
+// rManage22 covers the mechanisms for sustaining the value of deployed AI —
+// including the ability to remove it. Deletion is the half nothing else in this
+// report reaches, and the purge counters record it.
+func rManage22(ctx ReportContext) SubcategoryMapping {
+	m := sub("MANAGE", "MANAGE 2.2", "Mechanisms to sustain deployed AI",
+		"Mechanisms are in place and applied to sustain the value of deployed AI systems, including the ability to deactivate or remove them.")
+	if ctx.PurgeJobCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.PurgeJobCount, "purge job"), Kind: "log",
+			Detail: "executed, removing " + plural(int(ctx.PurgeDeletedRows), "record") + " — the deactivation and removal path has been exercised, not merely documented",
+			Link:   routeLogs,
+		})
+	}
+	if ctx.SuppressionWithOwner > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SuppressionWithOwner, "owned risk acceptance"), Kind: "vex",
+			Detail: "decisions to keep something in service, each naming the person who accepted the risk", Link: routePolicies,
+		})
+	}
+	switch {
+	case ctx.PurgeJobCount == 0 && ctx.SuppressionWithOwner == 0:
+		m.Status = StatusGap
+		m.Rationale = "Neither a removal path nor an owned decision to keep something in service is recorded — nothing evidences the mechanisms this subcategory asks for."
+		m.Gaps = append(m.Gaps, "No exercised removal path and no owned risk acceptance")
+	case ctx.PurgeJobCount > 0:
+		m.Status = StatusPartial
+		m.Rationale = "The removal path has been exercised. Sustaining value over the lifetime is a broader practice than deletion, and the rest of it is not evidenced here."
+		m.Gaps = append(m.Gaps, "Only the removal half of this subcategory is evidenced")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Decisions to keep components in service are recorded and owned, but no removal has been exercised, so the deactivation path is untested."
+		m.Gaps = append(m.Gaps, "The removal path has never been exercised")
+	}
+
+	return m
+}
+
+// rMap31 covers the documented capabilities and limitations of the AI in scope,
+// and the test evidence behind them.
+func rMap31(ctx ReportContext, inv inventory) SubcategoryMapping {
+	m := sub("MAP", "MAP 3.1", "Capabilities and limitations documented",
+		"Potential benefits and the capabilities, limitations and assumptions of the AI system are documented and understood.")
+	if len(inv.all) == 0 {
+		m.Status = StatusNotApplicable
+		m.Rationale = "No AI components were detected in scope, so there are no capabilities to document."
+
+		return m
+	}
+	if ctx.CliTestConfigCount > 0 {
+		detail := plural(ctx.CliTestConfigCount, "test configuration") + " recorded"
+		if len(ctx.TestFrameworks) > 0 {
+			detail += " (" + joinNames(ctx.TestFrameworks, "unnamed frameworks") + ")"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Automated testing", Kind: "provenance",
+			Detail: detail + " — the assumptions about behaviour are written down as tests", Link: routeScans,
+		})
+	}
+	if ctx.ThreatAnnotationCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.ThreatAnnotationCount, "threat annotation"), Kind: "policy",
+			Detail: "limitations recorded against the modelled system rather than left implicit", Link: routeThreatModel,
+		})
+	}
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: plural(len(inv.all), "AI component"), Kind: "provenance",
+		Detail: "inventoried with provider, family and task where the source discloses them", Link: invLink(ctx),
+	})
+	switch {
+	case ctx.CliTestConfigCount > 0 && ctx.ThreatAnnotationCount > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Capabilities are inventoried, assumptions are written as automated tests, and limitations are annotated against the modelled system."
+	case ctx.CliTestConfigCount > 0 || ctx.ThreatAnnotationCount > 0:
+		m.Status = StatusPartial
+		m.Rationale = "The AI in scope is inventoried and one half of the documentation is evidenced — either the tests that encode its assumptions or the annotated limitations, not both."
+		m.Gaps = append(m.Gaps, "Either the test evidence or the recorded limitations is missing")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "The AI in scope is inventoried, which documents what is present. No test configuration encodes its assumed behaviour and no limitation is recorded against it."
+		m.Gaps = append(m.Gaps, "No test configuration and no recorded limitation")
+	}
+
+	return m
+}
+
+// rGovern12 covers accountability: whether the people responsible for the AI
+// estate are identifiable, and whether their access to it is recorded.
+func rGovern12(ctx ReportContext) SubcategoryMapping {
+	m := sub("GOVERN", "GOVERN 1.2", "Accountability structures",
+		"The characteristics of trustworthy AI are integrated into organizational policies, processes and procedures, with accountable roles identified.")
+	if ctx.MemberCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.MemberCount, "platform account"), Kind: "identity",
+			Detail: itoa(ctx.MfaMemberCount) + " of them protected by multi-factor authentication — the people accountable for this estate are individually identifiable",
+		})
+	}
+	if ctx.AccessLogCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AccessLogCount, "access record"), Kind: "log",
+			Detail: itoa(ctx.AccessLogWithIdentity) + " carry a user identity and " + itoa(ctx.AccessLogWithSource) + " a source address, across " + plural(ctx.AccessLogMemberCount, "distinct person"),
+			Link:   routeLogs,
+		})
+	}
+	attributable := ctx.SsvcDecisionByHuman + ctx.SuppressionWithOwner
+	if attributable > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attributable, "attributable decision"), Kind: "review",
+			Detail: "risk decisions carrying the name of the person who made them", Link: routeFindings,
+		})
+	}
+	switch {
+	case ctx.MemberCount == 0:
+		m.Status = StatusGap
+		m.Rationale = "No accounts are recorded against this estate, so nobody is identifiable as accountable for it."
+		m.Gaps = append(m.Gaps, "No identifiable accountable person")
+	case attributable > 0 && ctx.AccessLogWithIdentity > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Accountable people are individually identifiable, their access to the estate is recorded against their identity, and risk decisions carry the name of whoever made them."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "The people with access to this estate are identifiable. What is missing is the link from a decision to the person who made it: no risk decision or access record carries an identity."
+		m.Gaps = append(m.Gaps, "Decisions and access are not attributed to named people")
+	}
+
+	return m
+}

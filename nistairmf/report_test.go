@@ -133,8 +133,12 @@ func TestReportCoversEverySubcategoryWithAMapper(t *testing.T) {
 			t.Errorf("%s has a mapper but is not emitted by the report path", id)
 		}
 	}
-	if len(seen) != 17 {
-		t.Errorf("subcategories = %d, want 17", len(seen))
+	// 22 since five more were written against evidence the context already
+	// carried (F-184/F-064). The number is asserted so a subcategory cannot be
+	// dropped silently: the report discloses its own shortfall against the 72,
+	// and that disclosure is only true if this count is.
+	if len(seen) != 22 {
+		t.Errorf("subcategories = %d, want 22", len(seen))
 	}
 
 	// The report path must never cover less than the per-scan path.
@@ -229,6 +233,38 @@ func TestNoSubcategoryIsCappedBelowSatisfied(t *testing.T) {
 	ctx.SsvcDecisionCount = 40
 	ctx.RiskStrategyName = "default"
 	ctx.RiskStrategyRuleCount = 22
+	// The signals the five subcategories added for F-184 rest on. The fixture
+	// left every one of them zero, which is F-066: the deepest branches of this
+	// mapper had never been executed by any test, and a subcategory reading
+	// `gap` for want of a fixture field looks exactly like one that is capped.
+	ctx.MemberCount = 14
+	ctx.MfaMemberCount = 14
+	ctx.AccessLogWithIdentity = 3000
+	ctx.AccessLogWithSource = 3084
+	ctx.AccessLogMemberCount = 12
+	ctx.SsvcDecisionByHuman = 18
+	ctx.SuppressionWithOwner = 6
+	ctx.ThreatModelCount = 2
+	ctx.ThreatModelElementCount = 44
+	ctx.ThreatModelWithAttackPath = 2
+	ctx.ThreatModelMethodologies = []string{"STRIDE"}
+	ctx.ThreatAnnotationCount = 9
+	ctx.SarifResultTotal = 900
+	ctx.SarifResultReviewed = 900
+	ctx.SarifResultReviewedBy = 900
+	ctx.QualityGateConfigured = true
+	ctx.QualityGateBlocks = []string{"malware", "eol"}
+	ctx.QualityGateSeverity = "high"
+	ctx.QualityGateExploits = "weaponized"
+	ctx.QualityGateVersionLag = 5
+	ctx.PurgeJobCount = 3
+	ctx.PurgeDeletedRows = 1200
+	ctx.CliTestConfigCount = 7
+	ctx.TestFrameworks = []string{"vitest", "go test"}
+	ctx.AlertCount = 12
+	ctx.AlertsAcknowledged = 12
+	ctx.AlertsAcknowledgers = 3
+	ctx.NotifyIntegrations = []string{"slack"}
 	// MAP 2.2 asks that the AI system's knowledge limits be *documented*, so a
 	// component carrying a stated limit is its positive state — an inventory
 	// with nothing unresolved has documented nothing. The maximal input has to
@@ -238,13 +274,24 @@ func TestNoSubcategoryIsCappedBelowSatisfied(t *testing.T) {
 		Task: "classification", ConfidenceGap: true,
 		GapReason: "training data cutoff not recorded upstream",
 	})
+	// MANAGE 4.3 wants change tracking *and* communication. The commit-derived
+	// component is the change-tracking half and the fixture never carried one,
+	// so the subcategory could not reach satisfied for reasons that had nothing
+	// to do with the mapper.
+	ctx.Components = append(ctx.Components, euaiact.Component{
+		Name: "assistant-authored-module", Category: "coding-agent",
+		EvidenceMethods: []string{"commit"},
+	})
 
 	// MAP 1.1 and MANAGE 4.3 cap at partial on purpose: each carries a second
 	// obligation (the requirements for the intended purpose; communicating
 	// incidents to stakeholders) that no artifact evidences. MAP 5.1 is
 	// not-applicable by construction. Those are documented ceilings, not
 	// accidents, so they are listed rather than silently tolerated.
-	deliberate := map[string]bool{"MAP 1.1": true, "MANAGE 4.3": true, "MAP 5.1": true}
+	// MANAGE 4.3 is no longer a documented ceiling: the incident-communication
+	// half it called unevidenceable is evidenced by the alert trail and the
+	// notification routes, both of which were on the context all along.
+	deliberate := map[string]bool{"MAP 1.1": true, "MAP 5.1": true, "MANAGE 2.2": true}
 
 	for _, fn := range MapReport(ctx) {
 		for _, sc := range fn.Subcategories {
