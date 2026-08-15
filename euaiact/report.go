@@ -727,6 +727,20 @@ func (c ReportContext) HasScannerCategory(names ...string) bool {
 }
 
 // ScannerCategoryRuns totals runs across the named category aliases.
+// FindingCategoryCount sums findings across a set of collection categories —
+// the counterpart to ScannerCategoryRuns, and it has to be used with it.
+// Pairing a run count over {iac, infra, cloud} with a finding count for "iac"
+// alone reported "N cloud scanner run(s), 0 finding(s) raised" as positive
+// evidence for an estate whose findings were all filed under `cloud`.
+func (c ReportContext) FindingCategoryCount(names ...string) int {
+	total := 0
+	for _, n := range names {
+		total += c.FindingByCategory[n]
+	}
+
+	return total
+}
+
 func (c ReportContext) ScannerCategoryRuns(names ...string) int {
 	total := 0
 	for _, n := range names {
