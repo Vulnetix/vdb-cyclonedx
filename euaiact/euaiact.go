@@ -133,7 +133,9 @@ type EvidenceItem struct {
 	Kind      string `json:"kind"`   // model | service | sdk | agent | dataset | runtime | accelerator | provenance | log | finding | scan | vex | policy | sbom | crypto
 	Detail    string `json:"detail"` // what it evidences
 	// Link is an optional route path to the source page for this evidence
-	// (e.g. "/vdb-findings", "/vdb-scanner-results/<uuid>", "/vdb-ai-inventory/<uuid>").
+	// (e.g. "/resolve/findings", "/resolve/scanner-results/<uuid>").
+	// Console routes only: /vdb-* has not been served since the console moved,
+	// so a link outside /resolve/ lands the reader on the 404 page.
 	Link string `json:"link,omitempty"`
 	// RefID is an optional identifier of the underlying record (uuid, count).
 	RefID string `json:"refId,omitempty"`
@@ -177,10 +179,10 @@ func Map(scan Scan, comps []Component) []ArticleMapping {
 		mapArticle72(scan),
 		notEvidenceable("Article 13", "Instructions for use",
 			"Providers must supply deployers with instructions covering the system's characteristics, capabilities and limitations.",
-			"An AI inventory records which AI is present, not the instructions-for-use a provider ships; this obligation is out of scope for inventory evidence."),
+			"An AI inventory records which AI is present, not the instructions-for-use a provider ships. The obligation applies; this evidence source does not reach it — the report view assesses it from the document the organization attaches."),
 		notEvidenceable("Article 15", "Accuracy, robustness and cybersecurity",
 			"High-risk systems must achieve appropriate accuracy, robustness and cybersecurity over their lifecycle.",
-			"An inventory can show an evaluation workload exists but carries no accuracy or robustness results; this obligation is out of scope for inventory evidence."),
+			"An inventory can show an evaluation workload exists but carries no accuracy or robustness results. The obligation applies; this evidence source does not reach it — the report view assesses it from scanner runs, findings and evaluation records."),
 	}
 }
 
@@ -552,10 +554,18 @@ func article(id, title, obligation string) ArticleMapping {
 	return ArticleMapping{Framework: Framework, Article: id, Title: title, Obligation: obligation}
 }
 
+// notEvidenceable marks an article this evidence source cannot speak to.
+//
+// It returned `not-applicable`, which says the obligation is out of scope — a
+// stronger and different claim from "an inventory cannot evidence this", and
+// one that contradicted the report mapper, where the same article is reachable
+// and Article 15 can reach satisfied. Two mappers over the same estate gave the
+// same article opposite verdicts. `informational` says what is true of both:
+// the obligation applies, this source does not evidence it.
 func notEvidenceable(id, title, obligation, why string) ArticleMapping {
 	return ArticleMapping{
 		Framework: Framework, Article: id, Title: title, Obligation: obligation,
-		Status: StatusNotApplicable, Rationale: why,
+		Status: StatusInformational, Rationale: why,
 	}
 }
 

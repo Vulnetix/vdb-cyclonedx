@@ -1,6 +1,9 @@
 package euaiact
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func find(ms []ArticleMapping, article string) *ArticleMapping {
 	for i := range ms {
@@ -151,12 +154,23 @@ func TestArticle72Monitoring(t *testing.T) {
 	}
 }
 
-func TestArticles13And15NotEvidenceable(t *testing.T) {
+// An inventory cannot evidence Articles 13 and 15 — but "not applicable" says
+// the obligation is out of scope, which is a different and stronger claim, and
+// it contradicted the report mapper where Article 15 is reachable and can reach
+// satisfied. Two mappers over one estate gave the same article opposite
+// verdicts (F-054). `informational` is what is true of both.
+func TestArticles13And15AreInformationalNotExcluded(t *testing.T) {
 	ms := Map(provenanceScan(), []Component{{Category: "model", Name: "m", Provider: "P", EvidenceCount: 1}})
 	for _, a := range []string{"Article 13", "Article 15"} {
 		mp := find(ms, a)
-		if mp.Status != StatusNotApplicable || mp.Rationale == "" {
-			t.Errorf("%s should be not-applicable with a reason, got %+v", a, mp)
+		if mp.Status == StatusNotApplicable {
+			t.Errorf("%s = not-applicable: the obligation applies, this evidence source does not reach it", a)
+		}
+		if mp.Status != StatusInformational || mp.Rationale == "" {
+			t.Errorf("%s should be informational with a reason, got %+v", a, mp)
+		}
+		if strings.Contains(mp.Rationale, "out of scope") {
+			t.Errorf("%s still says the obligation is out of scope: %q", a, mp.Rationale)
 		}
 	}
 }

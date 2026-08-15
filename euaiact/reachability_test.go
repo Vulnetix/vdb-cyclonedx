@@ -38,14 +38,17 @@ func maximalCtx() ReportContext {
 		FindingTotal: 4000, FindingByCategory: map[string]int{"sca": 900, "sast": 2900, "license": 200},
 		FindingBySeverity: map[string]int{"critical": 10, "high": 90, "medium": 900, "low": 3000},
 		TriagedTotal:      3800, AffectedTotal: 130, NotAffectedTotal: 311, FixedTotal: 200, UnderInvestigationTotal: 20,
-		OpenVexCount: 850, SuppressionCount: 3, HasEvaluation: true,
+		// The attribution signals: who accepted the risk, who recorded the
+		// decision, who reviewed the result. A maximal estate has them, and a
+		// fixture without them cannot ask whether an article needs them.
+		OpenVexCount: 850, SuppressionCount: 3, SuppressionWithOwner: 3, HasEvaluation: true,
 		ScannerRunCount: 1594, ScannerRunCategories: []string{"sast", "sca", "secrets", "iac", "container"},
 		ScannerRunByCategory: map[string]int{"sast": 800, "sca": 700, "secrets": 40, "iac": 40, "container": 14},
 		ScannerRepoCount:     9, ScannerToolNames: []string{"vulnetix", "sonarqube"},
 		IngestionSnapshotCount: 1594, CycloneDXCount: 378, SPDXCount: 12, AccessLogCount: 3084,
 		HasTriagePolicy: true, HasMethodology: true, HasLicensePolicy: true,
 		TriagePolicyName: "Standard", RemediationDaysBySev: map[string]int{"critical": 7, "high": 14, "medium": 30, "low": 90},
-		TriageThresholdDays: 3, SsvcDecisionCount: 40,
+		TriageThresholdDays: 3, SsvcDecisionCount: 40, SsvcDecisionByHuman: 12,
 		RiskStrategyName: "Exploitation first", RiskStrategyRuleCount: 22, RiskStrategyIsCustom: true,
 		RiskStrategyMetrics:   []string{"epss", "kev"},
 		QualityGateConfigured: true, QualityGateSeverity: "high", QualityGateExploits: "poc",
@@ -58,7 +61,7 @@ func maximalCtx() ReportContext {
 		AiFirewallProviderPolicyCount: 3, AiFirewallModelPolicyCount: 2,
 		AiFirewallRequestCount: 5000, AiFirewallBlockCount: 12, AiFirewallRedactCount: 5, AiFirewallFlagCount: 3,
 		ReachabilityTotal: 500, ReachabilityByVerdict: map[string]int{"REACHABLE": 100, "UNREACHABLE": 400},
-		SarifResultTotal: 900, SarifResultReviewed: 900,
+		SarifResultTotal: 900, SarifResultReviewed: 900, SarifResultReviewedBy: 900,
 		CodeReviewTotal: 90, CodeReviewApproved: 80, CodeReviewIndependent: 78, CodeReviewPullRequests: 90, CodeReviewReviewers: 12, CodeReviewReposCovered: 9,
 		SecretAlertTotal: 5, SecretAlertResolved: 5,
 		SonarFindingTotal: 40, SonarFindingOpen: 2, SonarRuleTypes: []string{"BUG", "VULNERABILITY"},
@@ -85,6 +88,7 @@ var documentOnly = map[string]string{
 	"Article 13":     "instructions for use are a provider-authored document",
 	"Articles 51-55": "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
 	"Article 73":     "the filing to the market-surveillance authority is made by a person outside this system; detection and disposition are evidenced, the report itself is attached",
+	"Article 10":     "10(2)-(5) asks for dataset design choices, provenance, examination for bias and representativeness — a bill of materials records that a dataset exists, not how it was governed",
 }
 
 func TestNoArticleIsCappedBelowSatisfied(t *testing.T) {

@@ -1144,14 +1144,37 @@ func reportArticle10(ctx ReportContext) ArticleMapping {
 	for _, t := range training {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: t.Name, Kind: "runtime", Detail: "Training framework — in-house training data governance applies", Link: invLink(ctx)})
 	}
-	if len(datasets) == 0 {
+	// An inventory is not governance. Article 10(2)-(5) asks for the design
+	// choices behind a dataset, its provenance and collection, examination for
+	// bias, and whether it is representative of the intended purpose — none of
+	// which a component named `dataset` in a bill of materials establishes.
+	// The article read `satisfied` on the existence of that component while its
+	// own rationale said only "inventoried": the status and the sentence
+	// disagreed, and the status was the wrong one.
+	const id = "Article 10"
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's data-governance record: design choices, provenance and collection, examination for bias, and representativeness",
+		})
+	}
+	switch {
+	case len(datasets) == 0:
 		m.Status = StatusPartial
 		m.Rationale = "Training infrastructure is inventoried, but no concrete dataset artifact was resolved."
 		m.Gaps = append(m.Gaps, "No dataset artifact resolved")
-	} else {
+	case attached > 0:
 		m.Status = StatusSatisfied
-		m.Rationale = "Datasets and the infrastructure that consumes them are inventoried."
+		m.Rationale = "Datasets and the infrastructure that consumes them are inventoried, and the organization has attached its data-governance record. Vulnetix does not read the attachment — an assessor samples it."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Datasets and the infrastructure that consumes them are inventoried. Inventory is not governance: Article 10(2)-(5) asks for the design choices behind each dataset, its provenance and collection, its examination for bias, and whether it is representative of the intended purpose — none of which a bill of materials records."
+		m.Gaps = append(m.Gaps,
+			"No record of dataset design choices, provenance or collection",
+			"No examination for bias or assessment of representativeness")
 	}
+
 	return m
 }
 
@@ -1256,11 +1279,27 @@ func reportArticle14(ctx ReportContext) ArticleMapping {
 	for _, a := range agents {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: a.Name, Kind: "agent", Detail: "Autonomous agent requiring oversight", Link: invLink(ctx)})
 	}
+	// A triage disposition is not evidence of a person: automation writes
+	// `not_affected` too, and the count alone cannot tell them apart. What is
+	// attributable to a person is a suppression someone signed, an SSVC
+	// decision a human recorded, and a static-analysis result naming its
+	// reviewer — so the dispositions are reported as what they are, and only
+	// the attributable signals carry the claim.
 	if humanReview > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(humanReview, "finding"), Kind: "finding", Detail: "Human-reviewed triage decisions (affected/not-affected/under-investigation)", Link: routeFindings})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(humanReview, "finding"), Kind: "finding", Detail: "carry a triage disposition (affected, not-affected or under-investigation); the disposition alone does not record whether a person made it", Link: routeFindings})
 	}
 	if ctx.SuppressionCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Human risk-acceptance decisions"})
+		detail := "risk acceptances in force; " + itoa(ctx.SuppressionWithOwner) + " name the person who accepted them"
+		if ctx.SuppressionWithOwner == 0 {
+			detail = "risk acceptances in force, none naming who accepted them"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: detail, Link: routePolicies})
+	}
+	if ctx.SsvcDecisionByHuman > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SsvcDecisionByHuman, "SSVC decision"), Kind: "policy", Detail: "recorded by a person rather than derived by the engine", Link: routeFindings})
+	}
+	if ctx.SarifResultReviewedBy > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SarifResultReviewedBy, "reviewed result"), Kind: "review", Detail: "static-analysis results whose disposition names the reviewer", Link: routeFindings})
 	}
 	if ctx.AiFirewallGuardrailCount > 0 {
 		// Human oversight means a human-defined rule that *acts*. Saying every
@@ -1275,10 +1314,22 @@ func reportArticle14(ctx ReportContext) ArticleMapping {
 	if len(agents) > 0 && !ctx.AiFirewallConfigured {
 		m.Gaps = append(m.Gaps, "Detected autonomous agents have no runtime gateway/guardrails")
 	}
+	// Satisfied needs a person: a suppression someone signed, an SSVC decision
+	// a human recorded, or a static-analysis result naming its reviewer. Before
+	// this, one suppression — any suppression, from any year, with nobody's
+	// name on it — marked human oversight satisfied.
+	attributable := ctx.SuppressionWithOwner + ctx.SsvcDecisionByHuman + ctx.SarifResultReviewedBy
 	switch {
-	case humanReview > 0 || ctx.SuppressionCount > 0:
+	case attributable > 0:
 		m.Status = StatusSatisfied
-		m.Rationale = "Human oversight is evidenced by reviewed triage decisions and risk-acceptance records over the period."
+		m.Rationale = "Human oversight is evidenced by decisions attributable to named people: " +
+			itoa(ctx.SuppressionWithOwner) + " risk acceptance(s) with a recorded owner, " +
+			itoa(ctx.SsvcDecisionByHuman) + " SSVC decision(s) recorded by a person, and " +
+			itoa(ctx.SarifResultReviewedBy) + " analysis result(s) naming their reviewer."
+	case humanReview > 0 || ctx.SuppressionCount > 0:
+		m.Status = StatusPartial
+		m.Rationale = "Findings carry dispositions and risk acceptances are in force, but none of them records the person who made the decision — the disposition alone cannot be told from an automatic one."
+		m.Gaps = append(m.Gaps, "No oversight decision is attributable to a named person")
 	case len(agents) > 0:
 		m.Status = StatusInformational
 		m.Rationale = plural(len(agents), "autonomous agent") + " detected; the oversight surface is flagged but no human-review records were found in scope."
