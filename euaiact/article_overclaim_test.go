@@ -99,3 +99,99 @@ func TestUnevidenceableArticlesAreNotDeclaredOutOfScope(t *testing.T) {
 		}
 	}
 }
+
+// F-048 and F-050. Articles that bind this customer were absent from the report
+// while their evidence sat loaded and unread, and 13 context fields the sibling
+// AI frameworks already read were ignored here.
+//
+// The articles are asserted by name because their absence is not visible in any
+// count: a report with 12 articles looks complete until you know which 12.
+func TestArticlesThatBindTheCustomerArePresent(t *testing.T) {
+	present := map[string]bool{}
+	for _, a := range MapReport(maximalCtx()) {
+		present[a.Article] = true
+	}
+	for _, id := range []string{
+		"Article 4",  // AI literacy — binds every deployer
+		"Article 17", // quality management system
+		"Article 18", // documentation keeping
+		"Article 19", // automatically generated logs
+		"Article 20", // corrective actions
+		"Article 26", // deployer obligations
+		"Article 53", // GPAI provider obligations
+		"Article 55", // systemic-risk obligations
+		"Article 73", // serious-incident reporting
+	} {
+		if !present[id] {
+			t.Errorf("%s is absent from the report", id)
+		}
+	}
+}
+
+// The signals each new article rests on have to reach it, or the article is a
+// heading with nothing under it.
+func TestNewArticlesCiteTheirEvidence(t *testing.T) {
+	ctx := maximalCtx()
+	for _, tc := range []struct{ id, want string }{
+		{"Article 17", "Build gate"},
+		{"Article 19", "access record"},
+		{"Article 20", "finding"},
+		{"Article 26", "attributable decision"},
+		{"Article 53", "model"},
+		{"Article 55", "assessment run"},
+	} {
+		got := reportArticle(t, ctx, tc.id)
+		if len(got.Evidence) == 0 {
+			t.Errorf("%s cites nothing on a maximal estate", tc.id)
+
+			continue
+		}
+		var found bool
+		for _, e := range got.Evidence {
+			if strings.Contains(e.Component, tc.want) || strings.Contains(e.Detail, tc.want) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s does not cite %q: %+v", tc.id, tc.want, got.Evidence)
+		}
+	}
+}
+
+// F-050's mechanical half, kept as a test so the next field added to the shared
+// context cannot be read by the sibling AI frameworks and silently ignored here.
+func TestArticle15AndTheQmsReadTheSharedScannerSignals(t *testing.T) {
+	ctx := maximalCtx()
+	a15 := reportArticle(t, ctx, "Article 15")
+	var runs string
+	for _, e := range a15.Evidence {
+		if strings.Contains(e.Component, "assessment run") {
+			runs = e.Detail
+		}
+	}
+	if runs == "" {
+		t.Fatal("Article 15 cites no assessment runs")
+	}
+	for _, want := range []string{"repositor", "distinct tool"} {
+		if !strings.Contains(runs, want) {
+			t.Errorf("assessment-run evidence = %q, missing %q — the signal is on the context and the sibling frameworks read it", runs, want)
+		}
+	}
+
+	a17 := reportArticle(t, ctx, "Article 17")
+	var seenPolicy, seenVersions bool
+	for _, e := range a17.Evidence {
+		if e.Component == "Risk methodology" || e.Component == "Licence policy" {
+			seenPolicy = true
+		}
+		if strings.Contains(e.Detail, "recorded tool version") {
+			seenVersions = true
+		}
+	}
+	if !seenPolicy {
+		t.Error("Article 17 reads neither the risk methodology nor the licence policy")
+	}
+	if !seenVersions {
+		t.Error("Article 17 does not name the tool versions the verification ran")
+	}
+}

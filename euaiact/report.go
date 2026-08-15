@@ -791,6 +791,7 @@ func mapReportArticles(ctx ReportContext) []ArticleMapping {
 		// on which libraries it imports. So both are emitted as what they are —
 		// the organization's determination — and both are promotable by
 		// attaching it.
+		reportArticle4(ctx),
 		reportArticle5(ctx),
 		reportArticle6(ctx),
 		reportArticle9(ctx),
@@ -803,8 +804,15 @@ func mapReportArticles(ctx ReportContext) []ArticleMapping {
 		reportArticle13(ctx),
 		reportArticle14(ctx),
 		reportArticle15(ctx),
+		reportArticle17(ctx),
+		reportArticle18(ctx),
+		reportArticle19(ctx),
+		reportArticle20(ctx),
+		reportArticle26(ctx),
 		reportArticle50(ctx),
 		reportArticle51(ctx),
+		reportArticle53(ctx),
+		reportArticle55(ctx),
 		reportArticle72(ctx),
 		reportArticle73(ctx),
 	}
@@ -1047,8 +1055,12 @@ func reportArticle9(ctx ReportContext) ArticleMapping {
 	if ctx.QualityGateConfigured {
 		m.Evidence = append(m.Evidence, EvidenceItem{
 			Component: "enforced measures", Kind: "policy",
+			// The exploit-maturity floor and the version-lag bound are two more
+			// criteria the gate enforces, and both sat unread while the sentence
+			// described the gate as blocking on severity alone.
 			Detail: "Build gate blocks " + joinNames(ctx.QualityGateBlocks, "no categories") + " at severity floor " +
-				quote(ctx.QualityGateSeverity) + "; " + itoa(ctx.CliBreakBuildCount) + " of " + itoa(ctx.CliRunCount) +
+				quote(ctx.QualityGateSeverity) + gateExploitClause(ctx) + gateLagClause(ctx) + "; " +
+				itoa(ctx.CliBreakBuildCount) + " of " + itoa(ctx.CliRunCount) +
 				" pipeline run(s) set to break the build",
 			Link: routeGate,
 		})
@@ -1194,15 +1206,61 @@ func reportArticle11(ctx ReportContext) ArticleMapping {
 	if sbom > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(sbom, "SBOM"), Kind: "sbom", Detail: "CycloneDX/SPDX technical documentation of software components", Link: routeUploads})
 	}
-	_, _, _, _, _, _, gapped := classifyReport(ctx)
-	if gapped > 0 {
-		m.Status = StatusPartial
-		m.Rationale = "The system is documented; " + plural(gapped, "component") + " carry an explicit limitation (Annex IV §2(g))."
-		m.Gaps = append(m.Gaps, plural(gapped, "component")+" with a stated unverifiable value")
-	} else {
-		m.Status = StatusSatisfied
-		m.Rationale = "AI components and software SBOMs together document the system with no unresolved limitations."
+	models, _, datasets, _, accelerators, _, gapped := classifyReport(ctx)
+	// Annex IV is nine numbered sections, and the article reported two counts —
+	// a regression against the per-scan mapper, which emits model cards and
+	// repository attribution. Saying which sections this documentation reaches
+	// and which it does not is the difference between a bill of materials and
+	// technical documentation.
+	if len(models) > 0 {
+		with := 0
+		for _, mdl := range models {
+			if mdl.Provider != "" && mdl.Family != "" {
+				with++
+			}
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(models), "model"), Kind: "model",
+			Detail: "§2(b) general description: " + itoa(with) + " of them name both a provider and a family",
+			Link:   invLink(ctx),
+		})
 	}
+	if len(datasets) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(datasets), "dataset"), Kind: "dataset",
+			Detail: "§2(d) data requirements: the datasets are named; their provenance and labelling are Article 10 evidence and are not in a bill of materials",
+			Link:   invLink(ctx),
+		})
+	}
+	if len(accelerators) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(accelerators), "accelerator"), Kind: "accelerator",
+			Detail: "§2(c) computational resources used to develop and run the system",
+			Link:   invLink(ctx),
+		})
+	}
+	// The sections a bill of materials cannot reach, named rather than left for
+	// the reader to notice missing.
+	m.Gaps = append(m.Gaps,
+		"§1 general description, intended purpose and versions — provider-authored",
+		"§3 monitoring, functioning and control of the system — provider-authored",
+		"§5 validation and testing procedures and their results — provider-authored")
+	if gapped > 0 {
+		m.Gaps = append(m.Gaps, plural(gapped, "component")+" with a stated unverifiable value (§2(g))")
+	}
+	if n := ctx.ManualEvidenceCount("Article 11 / Annex IV"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the provider-authored sections of Annex IV",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "The inventory and SBOMs document the components, compute and data (Annex IV §2), and the organization has attached the provider-authored sections."
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "The inventory and SBOMs document the system's components, compute and data — Annex IV §2. The intended purpose, the monitoring and control description and the validation results are sections the provider writes, and none is on record."
+
 	return m
 }
 
@@ -1350,11 +1408,29 @@ func reportArticle15(ctx ReportContext) ArticleMapping {
 		m.Gaps = append(m.Gaps, "No assessment runs or findings found")
 		return m
 	}
+	// Which analysis actually ran, across how much of the estate, and with what
+	// tools: the report said "SAST/SCA/secrets/IaC/container" as a fixed list
+	// whatever had run, while the categories, repository count and tool names
+	// sat on the context unread — the sibling AI frameworks read all three.
 	if securityTesting > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(securityTesting, "assessment run"), Kind: "scan", Detail: "Automated security/robustness testing (SAST/SCA/secrets/IaC/container)", Link: routeScans})
+		detail := "automated security and robustness testing"
+		if len(ctx.ScannerRunCategories) > 0 {
+			detail += " (" + joinNames(ctx.ScannerRunCategories, "uncategorised") + ")"
+		}
+		if ctx.ScannerRepoCount > 0 {
+			detail += " across " + plural(ctx.ScannerRepoCount, "repository")
+		}
+		if len(ctx.ScannerToolNames) > 0 {
+			detail += ", from " + plural(len(ctx.ScannerToolNames), "distinct tool") + " (" + joinNames(ctx.ScannerToolNames, "unnamed") + ")"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(securityTesting, "assessment run"), Kind: "scan", Detail: detail, Link: routeScans})
 	}
 	if ctx.FindingTotal > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FindingTotal, "finding"), Kind: "finding", Detail: "Weaknesses identified and tracked", Link: routeFindings})
+		detail := "weaknesses identified and tracked"
+		if ctx.TriagedTotal > 0 {
+			detail += ", " + itoa(ctx.TriagedTotal) + " of them carried to a triage decision"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.FindingTotal, "finding"), Kind: "finding", Detail: detail, Link: routeFindings})
 	}
 	// HasEvaluation is `Finding.isTestSuite` — a security finding located in
 	// test code. It says the codebase has a test suite; it says nothing about a
@@ -1490,8 +1566,16 @@ func reportArticle50(ctx ReportContext) ArticleMapping {
 }
 
 func reportArticle51(ctx ReportContext) ArticleMapping {
-	m := article("Articles 51-55", "General-purpose AI & systemic risk",
-		"GPAI models, especially those trained with very large compute, carry additional obligations; systemic-risk classification hinges on training compute.")
+	// The id stays "Articles 51-55": customers have attached systemic-risk
+	// assessments against it, and renaming the key would orphan their evidence.
+	// What it covers is now stated exactly — the classification question — with
+	// 53 and 55 assessed as their own articles below.
+	m := article("Articles 51-55", "General-purpose AI: classification and systemic-risk designation",
+		"Whether a model is general-purpose, and whether it carries systemic risk, decides which of Articles 53 and 55 apply. The systemic-risk threshold is a training-compute figure. The obligations that follow from the designation are reported as Articles 53 and 55.")
+	// A resolved model family is not a GPAI determination — it means the
+	// inventory could name what the model is, which is true of a small
+	// classifier too. The article says which signal it has rather than
+	// presenting the inference as the classification.
 	models, _, _, _, accelerators, _, _ := classifyReport(ctx)
 	var gpai []Component
 	for _, mdl := range models {
@@ -1509,7 +1593,7 @@ func reportArticle51(ctx ReportContext) ArticleMapping {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: a.Name, Kind: "accelerator", Detail: "Accelerator compute — a systemic-risk classification input", Link: invLink(ctx)})
 	}
 	for _, g := range gpai {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: g.Name, Kind: "model", Detail: "General-purpose model family " + g.Family, Link: invLink(ctx)})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: g.Name, Kind: "model", Detail: "model family " + g.Family + " resolved from the inventory — whether it is a general-purpose model within the meaning of Article 51 is the provider's determination, not an inventory's", Link: invLink(ctx)})
 	}
 	// The FLOP figure is the one thing that decides systemic-risk
 	// classification and the one thing this product cannot measure, so the
@@ -1694,4 +1778,455 @@ func alertTypeClause(byType map[string]int) string {
 	}
 
 	return ": " + strings.Join(parts, ", ")
+}
+
+// reportArticle53 covers the GPAI provider's documentation obligations:
+// technical documentation for the model, information for downstream providers,
+// a copyright policy, and a sufficiently detailed summary of the training
+// content. All four are documents the provider authors.
+//
+// They were folded into an "Articles 51-55" blob capped at informational, so
+// none could be assessed on its own — an organization that had written the
+// copyright policy and the training-data summary had nowhere to say so, and a
+// reader could not tell which of the five articles the blob was about.
+func reportArticle53(ctx ReportContext) ArticleMapping {
+	const id = "Article 53"
+	m := article(id, "Obligations for providers of general-purpose AI models",
+		"GPAI providers must keep technical documentation, supply information to downstream providers, put a copyright policy in place, and publish a sufficiently detailed summary of the training content.")
+	models, _, _, _, _, _, _ := classifyReport(ctx)
+	attached := ctx.ManualEvidenceCount(id)
+	if len(models) == 0 {
+		m.Status = StatusInformational
+		m.Rationale = "No model is resolved in the in-scope inventory, so no general-purpose model provider obligation is evidenced here. Whether the organization provides a GPAI model is its own determination."
+
+		return m
+	}
+	// What telemetry does hold: the inventory itself is the start of the
+	// technical documentation, and the SBOM is its supply-chain half.
+	m.Evidence = append(m.Evidence, EvidenceItem{
+		Component: plural(len(models), "model"), Kind: "model",
+		Detail: "resolved in the AI inventory, which is the machine-readable half of the model documentation", Link: invLink(ctx),
+	})
+	if sbom := ctx.CycloneDXCount + ctx.SPDXCount; sbom > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(sbom, "SBOM"), Kind: "sbom",
+			Detail: "component provenance available to downstream providers", Link: routeUploads,
+		})
+	}
+	if attached > 0 {
+		m.Status = StatusSatisfied
+		m.Rationale = "Models are inventoried, and the organization has attached the provider documentation this article asks for — technical documentation, downstream information, the copyright policy and the training-content summary. Vulnetix does not read the attachments; an assessor samples them."
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "GPAI provider documentation supplied by the organization",
+		})
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "Models are inventoried, which is the machine-readable half of the technical documentation. The copyright policy and the training-content summary are documents the provider authors, and none is on record."
+	m.Gaps = append(m.Gaps,
+		"No copyright policy on record",
+		"No summary of training content on record")
+
+	return m
+}
+
+// reportArticle55 covers the obligations that attach to a GPAI model with
+// systemic risk: model evaluation including adversarial testing, tracking and
+// reporting serious incidents, and an adequate level of cybersecurity.
+//
+// Unlike 53, this one is partly evidenceable: evaluation workloads, the runtime
+// guardrails that constrain model use, the incident trail and the security
+// testing of the estate are all recorded. Only the *classification* — whether
+// the model crosses the compute threshold — is outside what Vulnetix measures,
+// and that is Article 51's question, not this one's.
+func reportArticle55(ctx ReportContext) ArticleMapping {
+	const id = "Article 55"
+	m := article(id, "Obligations for providers of GPAI models with systemic risk",
+		"Providers of general-purpose AI models with systemic risk must evaluate the model including adversarial testing, track and report serious incidents, and ensure an adequate level of cybersecurity.")
+	if ctx.HasEvaluation {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Model evaluation", Kind: "runtime",
+			Detail: "evaluation workloads are recorded in the inventory", Link: invLink(ctx),
+		})
+	}
+	if ctx.AiFirewallEnforcingGuardrails > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AiFirewallEnforcingGuardrails, "enforcing guardrail"), Kind: "policy",
+			Detail: "block or redact on every gateway inference", Link: routeAiFirewall,
+		})
+	}
+	if ctx.AlertCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AlertCount, "alert"), Kind: "log",
+			Detail: "incidents raised and tracked in the period" + alertTypeClause(ctx.AlertByType),
+		})
+	}
+	if ctx.ScannerRunCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.ScannerRunCount, "assessment run"), Kind: "scan",
+			Detail: "security testing of the estate the model runs in", Link: routeScans,
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's model evaluation, including adversarial testing",
+		})
+	}
+	switch {
+	case len(m.Evidence) == 0:
+		m.Status = StatusGap
+		m.Rationale = "No evaluation workload, no enforcing guardrail, no incident trail and no security testing are recorded — none of this article's obligations is evidenced."
+		m.Gaps = append(m.Gaps, "No model evaluation, guardrail, incident or security-testing evidence")
+	case attached > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "The estate's security testing, incident trail and runtime constraints are recorded, and the organization has attached its model evaluation including the adversarial testing this article requires."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "The estate's security testing, incident trail and runtime constraints are recorded. Model evaluation including adversarial testing is a study the provider runs; no record of one is attached."
+		m.Gaps = append(m.Gaps, "No model evaluation with adversarial testing on record")
+	}
+
+	return m
+}
+
+// reportArticle17 covers the quality-management system. A QMS is a written
+// system — strategies, procedures, responsibilities — and the article was
+// absent from the report entirely, though several of its components are
+// observable: a documented risk-ranking method, declared remediation windows,
+// an enforced build gate and a repeatable pipeline are the parts of a QMS this
+// product can see operating.
+func reportArticle17(ctx ReportContext) ArticleMapping {
+	const id = "Article 17"
+	m := article(id, "Quality management system",
+		"Providers must put a quality management system in place covering, among other things, techniques for design and verification, examination and testing procedures, and an accountability framework.")
+	if ctx.HasOrgRiskStrategy() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: ctx.RiskStrategyName, Kind: "policy",
+			Detail: "the organization's own ranking method, " + plural(ctx.RiskStrategyRuleCount, "enabled rule") + ", applied to every finding", Link: routeRiskStrategy,
+		})
+	}
+	if ctx.HasRemediationSLA() {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: ctx.TriagePolicyName, Kind: "policy",
+			Detail: "declared remediation windows the process is held to", Link: routePolicies,
+		})
+	}
+	if ctx.QualityGateConfigured {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Build gate", Kind: "policy",
+			Detail: "acceptance criteria enforced at build time rather than left to judgement", Link: routeGate,
+		})
+	}
+	if ctx.CliRunCount > 0 {
+		detail := "the verification procedure running as part of delivery"
+		if len(ctx.CliVersions) > 0 {
+			// Which version of the procedure ran is part of a QMS: a
+			// documented technique is only repeatable if the tooling behind it
+			// is identified. The versions were stored and unread.
+			detail += ", running " + plural(len(ctx.CliVersions), "recorded tool version") + " (" + joinNames(ctx.CliVersions, "unrecorded") + ")"
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.CliRunCount, "pipeline run"), Kind: "scan",
+			Detail: detail, Link: routeScans,
+		})
+	}
+	// A QMS covers the policies an organization has decided on, and two of them
+	// were sat on the context unread by this framework while both sibling AI
+	// frameworks read them.
+	if ctx.HasMethodology {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Risk methodology", Kind: "policy",
+			Detail: "a decision methodology is configured, so risk decisions are reproducible from their inputs", Link: routeRiskStrategy,
+		})
+	}
+	if ctx.HasLicensePolicy {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Licence policy", Kind: "policy",
+			Detail: "licence obligations are decided by policy rather than case by case", Link: routeLicenses,
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's quality-management system documentation",
+		})
+	}
+	switch {
+	case len(m.Evidence) == 0:
+		m.Status = StatusGap
+		m.Rationale = "No ranking method, no declared remediation window, no build gate and no pipeline verification are recorded — none of the quality-management system is evidenced here."
+		m.Gaps = append(m.Gaps, "No documented method, window, gate or verification procedure")
+	case attached > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Parts of the quality-management system are observable — the ranking method, the remediation windows, the build gate and the pipeline verification — and the organization has attached the system's documentation."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Parts of the quality-management system are observable here: the ranking method, the declared remediation windows, the build gate and the verification running in the pipeline. The system itself is a written document covering responsibilities and accountability, and none is on record."
+		m.Gaps = append(m.Gaps, "No quality-management system documentation on record")
+	}
+
+	return m
+}
+
+// reportArticle19 covers automatically generated logs the provider keeps. The
+// obligation is about *retention* — at least six months — and the report holds
+// the log volume but nothing about how long it is kept, so the article reports
+// what it can see and says which half it cannot.
+func reportArticle19(ctx ReportContext) ArticleMapping {
+	const id = "Article 19"
+	m := article(id, "Automatically generated logs",
+		"Providers must keep the logs their high-risk systems generate automatically, for a period appropriate to the system's purpose and at least six months.")
+	attached := ctx.ManualEvidenceCount(id)
+	if ctx.AccessLogCount == 0 && ctx.IngestionSnapshotCount == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No access records and no assessment history are held for the period — there is no log to retain."
+		m.Gaps = append(m.Gaps, "No automatically generated logs recorded")
+
+		return m
+	}
+	if ctx.AccessLogCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AccessLogCount, "access record"), Kind: "log",
+			Detail: "generated automatically over the period", Link: routeLogs,
+		})
+	}
+	if ctx.IngestionSnapshotCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.IngestionSnapshotCount, "assessment snapshot"), Kind: "log",
+			Detail: "immutable per-run record of what was ingested and how it was dispositioned", Link: routeScans,
+		})
+	}
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's log-retention policy and its retention period",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Logs are generated automatically and retained in the platform, and the organization has attached the retention policy that states for how long."
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "Logs are generated automatically and held in the platform. The obligation is about retention — at least six months — and no retention period is recorded here."
+	m.Gaps = append(m.Gaps, "No log-retention period on record")
+
+	return m
+}
+
+// reportArticle20 covers corrective actions: withdrawing, disabling or
+// recalling a system that does not conform, and informing the chain about it.
+// The observable half is whether findings actually reach a fix — a corrective
+// action is a fix that happened — and whether the gate stops a non-conforming
+// change from shipping at all.
+func reportArticle20(ctx ReportContext) ArticleMapping {
+	const id = "Article 20"
+	m := article(id, "Corrective actions and duty of information",
+		"Providers who consider a system not to be in conformity must immediately take the corrective actions needed to bring it into conformity, withdraw it, disable it or recall it, and inform the chain.")
+	if ctx.FixedTotal > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.FixedTotal, "finding"), Kind: "finding",
+			Detail: "carried through to a recorded fix in the period", Link: routeFindings,
+		})
+	}
+	if ctx.CliFailedGateCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.CliFailedGateCount, "pipeline run"), Kind: "scan",
+			Detail: "stopped a non-conforming change before it shipped", Link: routeGate,
+		})
+	}
+	if ctx.OpenVexCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.OpenVexCount, "VEX document"), Kind: "vex",
+			Detail: "machine-readable disclosure of what was affected and what was fixed, which is the chain-information half of this article", Link: routeUploads,
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's record of a withdrawal, disablement or recall and the notifications it sent",
+		})
+	}
+	switch {
+	case len(m.Evidence) == 0:
+		m.Status = StatusGap
+		m.Rationale = "No finding reached a fix, no build was stopped and no disclosure was published — no corrective action is evidenced."
+		m.Gaps = append(m.Gaps, "No corrective action recorded")
+	case attached > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Corrective action is evidenced by fixes carried through, non-conforming changes stopped at the gate and disclosures published, and the organization has attached its record of the withdrawal or recall procedure it followed."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Corrective action on vulnerabilities is evidenced: findings reach fixes, the gate stops non-conforming changes, and disclosures are published. Withdrawal, disablement and recall of a system are decisions taken outside this product and none is on record."
+		m.Gaps = append(m.Gaps, "No withdrawal, disablement or recall procedure on record")
+	}
+
+	return m
+}
+
+// reportArticle4 covers AI literacy: the provider and the deployer must ensure
+// a sufficient level of AI literacy among the people who operate their systems.
+// It binds every organization using AI, and it was absent. Vulnetix cannot see
+// a training programme, but it can see how many people the estate is exposed to
+// and that a person, not a machine, is making decisions in it.
+func reportArticle4(ctx ReportContext) ArticleMapping {
+	const id = "Article 4"
+	m := article(id, "AI literacy",
+		"Providers and deployers must take measures to ensure a sufficient level of AI literacy among their staff and others operating the systems on their behalf.")
+	if ctx.MemberCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.MemberCount, "platform account"), Kind: "identity",
+			Detail: "people with access to the AI posture of this estate — the population the literacy obligation covers",
+		})
+	}
+	decisions := ctx.SsvcDecisionByHuman + ctx.SuppressionWithOwner
+	if decisions > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(decisions, "recorded decision"), Kind: "review",
+			Detail: "risk decisions attributable to named people, which is literacy being exercised rather than declared", Link: routeFindings,
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's AI-literacy measures: training, guidance and who has completed it",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "The organization has attached its AI-literacy measures, and named people are exercising judgement over the AI estate in this platform."
+
+		return m
+	}
+	m.Status = StatusInformational
+	m.Rationale = "Not evaluable from Vulnetix data — a literacy programme, its content and its completion records live outside this platform. What is observable is how many people have access to the estate and whether decisions in it are attributable to them."
+	m.Gaps = append(m.Gaps, "No AI-literacy training or guidance on record")
+
+	return m
+}
+
+// reportArticle18 covers documentation retention: the technical documentation,
+// the QMS documentation, approvals and decisions kept for ten years. Vulnetix
+// holds documents and can say how far back its own record goes, but a ten-year
+// retention commitment is a policy, not an observation.
+func reportArticle18(ctx ReportContext) ArticleMapping {
+	const id = "Article 18"
+	m := article(id, "Documentation keeping",
+		"Providers must keep the technical documentation, the quality-management-system documentation and any approvals or decisions at the disposal of the national authorities for ten years after the system is placed on the market.")
+	held := ctx.CycloneDXCount + ctx.SPDXCount + ctx.AibomScanCount + ctx.OpenVexCount
+	if held > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(held, "retained document"), Kind: "sbom",
+			Detail: "bills of materials, AI inventories and disclosures held in the platform and retrievable by an authority", Link: routeUploads,
+		})
+	}
+	if ctx.IngestionSnapshotCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.IngestionSnapshotCount, "assessment record"), Kind: "log",
+			Detail: "immutable per-run history of the decisions taken about this estate", Link: routeScans,
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the organization's retention commitment and where the documentation is kept",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Documentation is retained in the platform and retrievable, and the organization has attached its ten-year retention commitment."
+
+		return m
+	}
+	if len(m.Evidence) == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No bill of materials, AI inventory, disclosure or assessment record is held for this scope — there is no documentation to keep."
+		m.Gaps = append(m.Gaps, "No technical documentation retained")
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "Technical documentation is retained in the platform and retrievable by an authority. The obligation is a ten-year retention commitment, which is a policy the organization makes and not something a document store evidences on its own."
+	m.Gaps = append(m.Gaps, "No ten-year retention commitment on record")
+
+	return m
+}
+
+// reportArticle26 covers the deployer's obligations: using the system per the
+// instructions, assigning human oversight to competent people, monitoring
+// operation and keeping the logs. The report's own Article 50 text says
+// "Deployers must…" and there was no Article 26 anywhere in it.
+func reportArticle26(ctx ReportContext) ArticleMapping {
+	const id = "Article 26"
+	m := article(id, "Obligations of deployers of high-risk AI systems",
+		"Deployers must use the system in accordance with its instructions, assign human oversight to people with the necessary competence and authority, monitor its operation, and keep the logs it generates.")
+	if n := ctx.SsvcDecisionByHuman + ctx.SuppressionWithOwner + ctx.SarifResultReviewedBy; n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attributable decision"), Kind: "review",
+			Detail: "oversight exercised by named people over the AI estate", Link: routeFindings,
+		})
+	}
+	if ctx.AiFirewallEnforcingGuardrails > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AiFirewallEnforcingGuardrails, "enforcing guardrail"), Kind: "policy",
+			Detail: "constraints the deployer set on model use at the gateway", Link: routeAiFirewall,
+		})
+	}
+	if ctx.AccessLogCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AccessLogCount, "access record"), Kind: "log",
+			Detail: "operation of the estate recorded and kept", Link: routeLogs,
+		})
+	}
+	if ctx.AlertCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AlertCount, "alert"), Kind: "log",
+			Detail: "monitoring of operation, with alerts raised in the period",
+		})
+	}
+	attached := ctx.ManualEvidenceCount(id)
+	if attached > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attached, "attached document"), Kind: "manual",
+			Detail: "the deployer's record of who was assigned oversight, their competence and authority",
+		})
+	}
+	switch {
+	case len(m.Evidence) == 0:
+		m.Status = StatusGap
+		m.Rationale = "No attributable oversight decision, no runtime constraint, no access record and no alert — none of the deployer obligations is evidenced."
+		m.Gaps = append(m.Gaps, "No evidence of oversight, monitoring or log-keeping")
+	case attached > 0:
+		m.Status = StatusSatisfied
+		m.Rationale = "Oversight is exercised by named people, the estate's operation is monitored and its logs are kept, and the deployer has attached its record of who holds the oversight assignment."
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Oversight is exercised by named people, runtime constraints are in force, operation is logged and alerts are raised. Who *holds* the oversight assignment, and their competence and authority, is a record the deployer keeps and none is attached."
+		m.Gaps = append(m.Gaps, "No record of who is assigned oversight, or of their competence and authority")
+	}
+
+	return m
+}
+
+// gateExploitClause names the exploit-maturity floor the gate enforces, which
+// is a stricter criterion than severity and was stored unread.
+func gateExploitClause(ctx ReportContext) string {
+	if ctx.QualityGateExploits == "" {
+		return ""
+	}
+
+	return " and exploit maturity " + quote(ctx.QualityGateExploits)
+}
+
+// gateLagClause names the version-lag bound, likewise unread: a dependency more
+// than N versions behind fails the build regardless of any finding on it.
+func gateLagClause(ctx ReportContext) string {
+	if ctx.QualityGateVersionLag <= 0 {
+		return ""
+	}
+
+	return ", refusing a dependency more than " + plural(ctx.QualityGateVersionLag, "version") + " behind"
 }

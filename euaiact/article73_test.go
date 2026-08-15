@@ -83,9 +83,10 @@ func TestArticlesAreEmittedInReadingOrder(t *testing.T) {
 		got = append(got, a.Article)
 	}
 	want := []string{
-		"Article 5", "Article 6", "Article 9", "Article 10", "Article 11 / Annex IV",
-		"Article 12", "Article 13", "Article 14", "Article 15", "Article 50",
-		"Articles 51-55", "Article 72", "Article 73",
+		"Article 4", "Article 5", "Article 6", "Article 9", "Article 10",
+		"Article 11 / Annex IV", "Article 12", "Article 13", "Article 14", "Article 15",
+		"Article 17", "Article 18", "Article 19", "Article 20", "Article 26", "Article 50",
+		"Articles 51-55", "Article 53", "Article 55", "Article 72", "Article 73",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("articles = %v, want %v", got, want)

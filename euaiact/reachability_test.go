@@ -83,12 +83,21 @@ func maximalCtx() ReportContext {
 // between "needs a document" and "capped by accident" written down — and makes
 // any accidental addition to the set visible in a diff.
 var documentOnly = map[string]string{
-	"Article 5":      "whether a system performs a prohibited practice depends on how it is used, which no inventory or scan reveals",
-	"Article 6":      "Annex III classification turns on the system's purpose, not on its components",
-	"Article 13":     "instructions for use are a provider-authored document",
-	"Articles 51-55": "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
-	"Article 73":     "the filing to the market-surveillance authority is made by a person outside this system; detection and disposition are evidenced, the report itself is attached",
-	"Article 10":     "10(2)-(5) asks for dataset design choices, provenance, examination for bias and representativeness — a bill of materials records that a dataset exists, not how it was governed",
+	"Article 5":             "whether a system performs a prohibited practice depends on how it is used, which no inventory or scan reveals",
+	"Article 6":             "Annex III classification turns on the system's purpose, not on its components",
+	"Article 13":            "instructions for use are a provider-authored document",
+	"Articles 51-55":        "systemic-risk classification hinges on a training-compute (FLOP) figure Vulnetix does not measure",
+	"Article 73":            "the filing to the market-surveillance authority is made by a person outside this system; detection and disposition are evidenced, the report itself is attached",
+	"Article 10":            "10(2)-(5) asks for dataset design choices, provenance, examination for bias and representativeness — a bill of materials records that a dataset exists, not how it was governed",
+	"Article 53":            "the copyright policy and the training-content summary are documents the provider authors; the inventory is only the machine-readable half of the technical documentation",
+	"Article 55":            "model evaluation including adversarial testing is a study the provider runs, and no telemetry records that it happened",
+	"Article 17":            "a quality-management system is a written system of responsibilities and accountability; its operating parts are observable, the document is not",
+	"Article 19":            "the obligation is log *retention* for at least six months, and no retention period is recorded anywhere in the schema",
+	"Article 20":            "withdrawal, disablement and recall are decisions taken outside this product",
+	"Article 4":             "a literacy programme, its content and its completion records live outside this platform",
+	"Article 18":            "a ten-year retention commitment is a policy the organization makes, not something a document store evidences",
+	"Article 26":            "who holds the oversight assignment, and their competence and authority, is a record the deployer keeps",
+	"Article 11 / Annex IV": "sections 1, 3 and 5 of Annex IV — intended purpose, monitoring and control, validation results — are written by the provider; a bill of materials reaches section 2 only",
 }
 
 func TestNoArticleIsCappedBelowSatisfied(t *testing.T) {
