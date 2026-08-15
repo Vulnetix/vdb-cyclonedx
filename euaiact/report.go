@@ -30,6 +30,43 @@ const (
 	routeThreatModel  = "/vdb-threat-model"
 )
 
+// ReachabilitySample is one call-path verdict with the location that produced
+// it, so a report that says a finding was ruled reachable (or not) can name
+// where the analysis looked.
+type ReachabilitySample struct {
+	CveID       string
+	PackageName string
+	Verdict     string
+	Source      string
+	File        string
+	Routine     string
+	StartLine   int
+	EndLine     int
+}
+
+// Location renders "file:line (routine)" from whatever parts were recorded,
+// empty when the verdict carries no location at all.
+func (s ReachabilitySample) Location() string {
+	if s.File == "" && s.Routine == "" {
+		return ""
+	}
+	loc := s.File
+	if s.StartLine > 0 {
+		loc += ":" + itoa(s.StartLine)
+		if s.EndLine > s.StartLine {
+			loc += "-" + itoa(s.EndLine)
+		}
+	}
+	if s.Routine != "" {
+		if loc == "" {
+			return s.Routine
+		}
+		loc += " (" + s.Routine + ")"
+	}
+
+	return loc
+}
+
 // ReportContext is the aggregated, source-agnostic evidence view for one
 // compliance report (org + period + repo scope). Zero values mean "no such
 // evidence found" (→ StatusGap for controls that expect it).
@@ -523,6 +560,12 @@ type ReportContext struct {
 	ReachabilityTotal     int
 	ReachabilityByVerdict map[string]int // DIRECT|TRANSITIVE|SEMANTIC|UNREACHABLE
 	ReachabilityBySource  map[string]int // TREE_SITTER|SEMANTIC_GREP|SYMBOL_FALLBACK
+	// ReachabilitySamples are individual verdicts with the code location behind
+	// them. Reports claimed findings were "ruled unreachable with cited
+	// evidence" while reading nothing but verdict, source and count —
+	// matchedFile, matchedRoutine and the line range were stored and never
+	// selected, so the citation the sentence promised was not in the document.
+	ReachabilitySamples []ReachabilitySample
 
 	// ── Technology currency (end-of-life) ─────────────────────────────────
 	EolFindingCount int
