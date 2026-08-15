@@ -92,6 +92,11 @@ type ReportContext struct {
 	// evidence it never read. Any surface that shows a verdict has to show this
 	// too, or the verdict is unfalsifiable.
 	LoadFailures []string
+	// Truncations names the populations a query cap cut short, with the cap. A
+	// report computed from a sample is not wrong, but one that does not say so
+	// presents the sample as the scope — and every verdict below it is a claim
+	// about the whole estate.
+	Truncations []string
 
 	// AI inventory — union of components across in-scope AI-BOM scans.
 	Components     []Component
@@ -113,7 +118,12 @@ type ReportContext struct {
 	// customer-supplied evidence.
 	ManualEvidenceByControl map[string]int
 	LatestAibomScanUUID     string
-	PriorScanCount          int // AI-BOM scans over time (monitoring signal)
+	// InventoryTakenAt is when the AI-BOM behind Components was taken. Two ISO
+	// 42001 controls decided entirely from the component union and touched the
+	// period only to build a deep link, so a report for Q1 and one for Q4 gave
+	// identical verdicts over an inventory that might be years old.
+	InventoryTakenAt int64
+	PriorScanCount   int // AI-BOM scans over time (monitoring signal)
 
 	// Findings / risk identification + human triage.
 	FindingTotal            int
@@ -2229,4 +2239,28 @@ func gateLagClause(ctx ReportContext) string {
 	}
 
 	return ", refusing a dependency more than " + plural(ctx.QualityGateVersionLag, "version") + " behind"
+}
+
+// NoteTruncation records that a query cap cut a population short. Callers pass
+// what was capped and the cap, because "20,000 findings" tells a reader what
+// the verdicts below were computed from and "truncated" does not.
+func (c *ReportContext) NoteTruncation(what string, cap int) {
+	note := what + " (capped at " + itoa(cap) + ")"
+	for _, s := range c.Truncations {
+		if s == note {
+			return
+		}
+	}
+	c.Truncations = append(c.Truncations, note)
+}
+
+// TruncationNote is the sentence a report must carry when a cap was hit. Empty
+// when every population was read whole.
+func (c ReportContext) TruncationNote() string {
+	if len(c.Truncations) == 0 {
+		return ""
+	}
+
+	return "COMPUTED FROM A SAMPLE: " + strings.Join(c.Truncations, ", ") +
+		". The rows kept are the highest-severity ones, ordered so the sample is reproducible, but every count and verdict below describes that sample rather than the whole population."
 }

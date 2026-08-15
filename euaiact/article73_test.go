@@ -117,3 +117,25 @@ func TestEvidenceLinksPointAtRoutesThatExist(t *testing.T) {
 		}
 	}
 }
+
+// F-014. A report computed from a capped sample is not wrong; a report that
+// does not say so presents the sample as the scope, and every count below it
+// reads as a claim about the whole estate.
+func TestTruncationIsStatedNotSilent(t *testing.T) {
+	var ctx ReportContext
+	if ctx.TruncationNote() != "" {
+		t.Error("a report that read every row claims a truncation")
+	}
+	ctx.NoteTruncation("findings", 20000)
+	ctx.NoteTruncation("findings", 20000)
+	if len(ctx.Truncations) != 1 {
+		t.Errorf("truncations = %v, want the same population recorded once", ctx.Truncations)
+	}
+	note := ctx.TruncationNote()
+	if !strings.Contains(note, "20000") {
+		t.Errorf("note = %q — does not say what the cap was, which is what tells the reader the size of the sample", note)
+	}
+	if !strings.Contains(note, "sample") {
+		t.Errorf("note = %q — does not say the counts describe a sample", note)
+	}
+}
