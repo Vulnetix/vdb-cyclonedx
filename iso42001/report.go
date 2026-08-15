@@ -4,23 +4,32 @@ package iso42001
 // across all evidence sources) onto ISO/IEC 42001 Annex A controls, reusing the
 // same ReportContext as euaiact. Evidence items carry Links to source pages.
 
-import "github.com/Vulnetix/vdb-cyclonedx/euaiact"
+import (
+	"sort"
+	"time"
+
+	"github.com/Vulnetix/vdb-cyclonedx/euaiact"
+)
 
 // ReportContext is aliased from euaiact so the handler builds one context for
 // every framework.
 type ReportContext = euaiact.ReportContext
 
+// Console routes. These were `/vdb-*` paths, which the console has not served
+// since it moved to `/resolve/*` — every citation in this report reached the
+// 404 page.
 const (
-	routeFindings     = "/vdb-findings"
-	routeScans        = "/vdb-scanner-results"
-	routeInventory    = "/vdb-ai-inventory"
-	routeUploads      = "/vdb-uploads"
-	routeCrypto       = "/vdb-crypto-inventory"
-	routeAiFirewall   = "/vdb-ai-firewall"
-	routeRiskStrategy = "/vdb-risk-strategy"
-	routePolicies     = "/vdb-suppression-policies"
-	routeGate         = "/vdb-quality-gate"
-	routeLogs         = "/vdb-logs"
+	routeFindings     = "/resolve/findings"
+	routeScans        = "/resolve/scanner-results"
+	routeInventory    = "/resolve/ai-inventory"
+	routeUploads      = "/resolve/uploads"
+	routeCrypto       = "/resolve/crypto-inventory"
+	routeAiFirewall   = "/resolve/ai-firewall"
+	routeRiskStrategy = "/resolve/risk-strategy"
+	routePolicies     = "/resolve/suppression-policies"
+	routeGate         = "/resolve/quality-gate"
+	routeLogs         = "/resolve/logs"
+	routeMembers      = "/resolve/members"
 )
 
 // MapReport returns the Annex A control mappings for a whole report.
@@ -56,8 +65,12 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Category: "A.3", Title: "Internal organization",
 			Description: "Roles, responsibilities and reporting arrangements for the AI management system.",
 			Controls: []ControlMapping{
-				a32(),
-				a33(),
+				// Were the per-scan versions, which return not-applicable
+				// unconditionally: "an AI inventory observes what runs, not who
+				// is accountable". True of a scan; false of a report that holds
+				// the account list, the decision attribution and the alert trail.
+				rA32(ctx),
+				rA33(ctx),
 			},
 		},
 		{
@@ -70,7 +83,7 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Controls: []ControlMapping{
 				rA42(ctx, inv),
 				rA44(ctx, inv),
-				a45(inv),
+				rA45(ctx, inv),
 			},
 		},
 		{
@@ -81,14 +94,14 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 				// Emitted as not-applicable with a stated reason rather than
 				// omitted: a control absent from the report cannot be graded,
 				// and nothing tells the reader it is missing.
-				a54(),
+				rA54(ctx),
 			},
 		},
 		{
 			Category: "A.6", Title: "AI system life cycle",
 			Description: "Design, verification, operation, documentation and event logging across the life cycle.",
 			Controls: []ControlMapping{
-				a623(inv),
+				rA623(ctx, inv),
 				rA624(ctx, inv),
 				rA625(ctx),
 				rA626(ctx),
@@ -101,7 +114,7 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Description: "Data used to develop and operate AI systems, including provenance.",
 			Controls: []ControlMapping{
 				rA72(ctx, inv),
-				a75(inv),
+				rA75(ctx, inv),
 			},
 		},
 		{
@@ -111,7 +124,7 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Category: "A.8", Title: "Information for interested parties",
 			Description: "Information about the AI system is available to the parties that need it.",
 			Controls: []ControlMapping{
-				a83(inv),
+				rA83(ctx, inv),
 			},
 		},
 		{
@@ -125,7 +138,7 @@ func mapReportCategories(ctx ReportContext) []CategoryMapping {
 			Category: "A.10", Title: "Third-party relationships",
 			Description: "AI-related risks from suppliers and third parties are managed.",
 			Controls: []ControlMapping{
-				a102(inv),
+				rA102(ctx, inv),
 				rA103(ctx, inv),
 			},
 		},
@@ -285,8 +298,20 @@ func rA44(ctx ReportContext, inv inventory) ControlMapping {
 	for _, s := range inv.services {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "service", Detail: "AI service used across the life cycle — " + s.Category, Link: invLink(ctx)})
 	}
+	// When the inventory was taken decides whether this documents the period or
+	// a snapshot from another year. Stated rather than assumed: an inventory
+	// older than the period it evidences is stale, whatever it contains.
+	m.Evidence = append(m.Evidence, inventoryFreshness(ctx))
+	if inventoryStale(ctx) {
+		m.Status = StatusPartial
+		m.Rationale = plural(n, "tooling resource") + " documented, but the inventory behind them was taken " + inventoryAgeClause(ctx) + " — it may not describe the tooling in use during this period."
+		m.Gaps = append(m.Gaps, "The AI inventory predates the reporting period")
+
+		return m
+	}
 	m.Status = StatusSatisfied
-	m.Rationale = plural(n, "tooling resource") + " documented across the life cycle."
+	m.Rationale = plural(n, "tooling resource") + " documented across the life cycle, from an inventory taken " + inventoryAgeClause(ctx) + "."
+
 	return m
 }
 
@@ -325,13 +350,30 @@ func rA52(ctx ReportContext, inv inventory) ControlMapping {
 			Detail: "Recorded decision inputs and outcomes per assessed risk", Link: routeFindings,
 		})
 	}
+	// The control could not reach satisfied by any path: both branches below
+	// ended at partial or informational and no assignment to satisfied existed
+	// anywhere in the function. The organizational impact assessment is a human
+	// document, so the path to satisfied is the customer attaching it — the same
+	// path every other document-completed control in this estate uses.
+	if n := ctx.ManualEvidenceCount("A.5.2"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the organization's impact assessment: affected persons, societal effects and the conclusions drawn",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "A reproducible estimation method is applied to identified risks, and the organization has attached its impact assessment. Vulnetix does not read the attachment — an assessor samples it."
+
+		return m
+	}
 	if ctx.HasRiskStrategy() && ctx.FindingTotal > 0 {
 		m.Status = StatusPartial
 		m.Rationale = "A reproducible estimation method is applied to identified risks; the organizational impact assessment (affected persons, societal effects) remains a human process — attach it as manual evidence."
+
 		return m
 	}
 	m.Status = StatusInformational
 	m.Rationale = "The inventory and findings provide impact-assessment inputs; a formal impact assessment is a human process — attach it as manual evidence."
+
 	return m
 }
 
@@ -508,9 +550,22 @@ func rA627(ctx ReportContext, inv inventory) ControlMapping {
 		m.Gaps = append(m.Gaps, "No technical documentation found")
 		return m
 	}
-	m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(len(inv.all), "component"), Kind: "provenance", Detail: "CycloneDX technical inventory", Link: invLink(ctx)})
+	// The AI-BOM row used to be emitted even with zero components, so a
+	// satisfied control could carry "0 components — CycloneDX technical
+	// inventory" as its evidence. Both rows now say what they contain.
+	if len(inv.all) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(inv.all), "AI component"), Kind: "provenance",
+			Detail: "enumerated in the AI-BOM taken " + inventoryAgeClause(ctx) + ", with provider and family where the source discloses them",
+			Link:   invLink(ctx),
+		})
+	}
 	if ctx.CycloneDXCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.CycloneDXCount, "SBOM"), Kind: "sbom", Detail: "Software component documentation", Link: routeUploads})
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.CycloneDXCount, "SBOM"), Kind: "sbom",
+			Detail: "CycloneDX documents of the software the system is built from",
+			Link:   routeUploads,
+		})
 	}
 	if len(inv.gapped) > 0 {
 		sortByName(inv.gapped)
@@ -519,10 +574,17 @@ func rA627(ctx ReportContext, inv inventory) ControlMapping {
 		}
 		m.Status = StatusPartial
 		m.Rationale = "Technical documentation exists; " + plural(len(inv.gapped), "component") + " carry a stated limitation."
+	} else if len(inv.all) == 0 {
+		// SBOMs alone document the software, not the AI system this control is
+		// about — satisfied here would be a claim about a different subject.
+		m.Status = StatusPartial
+		m.Rationale = plural(ctx.CycloneDXCount, "SBOM") + " documents the software, but no AI component is inventoried, so the AI system itself carries no technical documentation."
+		m.Gaps = append(m.Gaps, "No AI component inventoried")
 	} else {
 		m.Status = StatusSatisfied
 		m.Rationale = "Attributable technical documentation exists with no unresolved limitations."
 	}
+
 	return m
 }
 
@@ -592,14 +654,24 @@ func rA72(ctx ReportContext, inv inventory) ControlMapping {
 	for _, v := range inv.vectordbs {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: v.Name, Kind: "runtime", Detail: "Retrieval data store", Link: invLink(ctx)})
 	}
-	if len(inv.datasets) == 0 {
+	// Same period-blindness as A.4.4: this control decided entirely from the
+	// component union, so a dataset inventoried years ago read exactly like one
+	// inventoried this quarter.
+	m.Evidence = append(m.Evidence, inventoryFreshness(ctx))
+	switch {
+	case len(inv.datasets) == 0:
 		m.Status = StatusPartial
 		m.Rationale = "Data infrastructure is identified; no concrete dataset artifact resolved."
 		m.Gaps = append(m.Gaps, "No dataset artifact resolved")
-	} else {
+	case inventoryStale(ctx):
+		m.Status = StatusPartial
+		m.Rationale = "Data used by the AI system is identified, but the inventory behind it was taken " + inventoryAgeClause(ctx) + " — it may not describe the data in use during this period."
+		m.Gaps = append(m.Gaps, "The AI inventory predates the reporting period")
+	default:
 		m.Status = StatusSatisfied
-		m.Rationale = "Data used by the AI system is identified in the inventory."
+		m.Rationale = "Data used by the AI system is identified in an inventory taken " + inventoryAgeClause(ctx) + "."
 	}
+
 	return m
 }
 
@@ -619,10 +691,10 @@ func rA92(ctx ReportContext) ControlMapping {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AffectedTotal+ctx.NotAffectedTotal+ctx.FixedTotal, "disposed finding"), Kind: "finding", Detail: "Risks dispositioned via triage decisions", Link: routeFindings})
 	}
 	if ctx.OpenVexCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.OpenVexCount, "VEX statement"), Kind: "vex", Detail: "Documented disposition decisions"})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.OpenVexCount, "VEX statement"), Kind: "vex", Detail: "Documented disposition decisions", Link: routeUploads})
 	}
 	if ctx.SuppressionCount > 0 {
-		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Documented risk-acceptance decisions"})
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.SuppressionCount, "suppression"), Kind: "vex", Detail: "Documented risk-acceptance decisions", Link: routePolicies})
 	}
 	if ctx.AiFirewallGuardrailCount > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy", Detail: "Responsible-use constraints (blocked patterns / PII redaction / message limits) enforced on gateway inferences", Link: routeAiFirewall})
@@ -655,10 +727,401 @@ func rA103(ctx ReportContext, inv inventory) ControlMapping {
 	if n := ctx.FindingByCategory["sca"]; n > 0 {
 		m.Evidence = append(m.Evidence, EvidenceItem{Component: plural(n, "SCA finding"), Kind: "finding", Detail: "Supplier/dependency risks scanned", Link: routeFindings})
 	}
-	m.Status = StatusPartial
-	m.Rationale = "AI suppliers are inventoried and their dependency risks scanned each period; supplier-risk management is a downstream activity."
+	// Pinned to partial unconditionally, so an organization that genuinely
+	// manages supplier risk had no way to show it. Managing supplier risk is
+	// observable here: an install-time gate that refuses a package, and
+	// dependency findings carried to a disposition rather than accumulating.
+	if ctx.PackageFirewallConfigured {
+		detail := "evaluates every install against " + joinNames(ctx.PackageFirewallToggles, "no enabled criteria")
+		if ctx.PackageFirewallRequestCount > 0 {
+			detail += ", " + itoa(ctx.PackageFirewallBlockCount) + " blocked and " + itoa(ctx.PackageFirewallWarnCount) + " warned across " + plural(ctx.PackageFirewallRequestCount, "decision")
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Package firewall", Kind: "policy", Detail: detail, Link: routePolicies,
+		})
+	}
+	enforcing := ctx.PackageFirewallConfigured && ctx.PackageFirewallRequestCount > 0
+	switch {
+	case enforcing && ctx.QualityGateConfigured:
+		m.Status = StatusSatisfied
+		m.Rationale = "AI suppliers are inventoried, their dependency risks scanned each period, and supplier risk is *managed*: the install-time gate refuses packages that breach the organization's criteria and the build gate refuses the release."
+	case enforcing:
+		m.Status = StatusPartial
+		m.Rationale = "AI suppliers are inventoried and an install-time gate refuses packages that breach the criteria, but no build gate stops a non-conforming dependency shipping."
+		m.Gaps = append(m.Gaps, "No build-time gate on supplier risk")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "AI suppliers are inventoried and their dependency risks scanned each period. Nothing acts on that: no install-time gate refuses a package and no build gate stops one shipping, so supplier risk is observed rather than managed."
+		m.Gaps = append(m.Gaps, "Supplier risk is observed but not acted on")
+	}
+
 	return m
 }
 
 // SummarizeReport rolls report-level category mappings into a Summary.
 func SummarizeReport(cats []CategoryMapping) Summary { return SummarizeCategories(cats) }
+
+// inventoryStale reports whether the AI-BOM behind the component union predates
+// the reporting period. A component inventoried earlier is still present, so it
+// is not excluded — but a control resting entirely on that union is describing
+// another period unless the scan falls inside this one.
+func inventoryStale(ctx ReportContext) bool {
+	return ctx.PeriodStart > 0 && ctx.InventoryTakenAt > 0 && ctx.InventoryTakenAt < ctx.PeriodStart
+}
+
+// inventoryAgeClause says when the inventory was taken, in the report's own
+// terms, so the reader can judge the evidence rather than assume it is current.
+func inventoryAgeClause(ctx ReportContext) string {
+	if ctx.InventoryTakenAt <= 0 {
+		return "on a date the scan did not record"
+	}
+	when := time.UnixMilli(ctx.InventoryTakenAt).UTC().Format("2006-01-02")
+	if inventoryStale(ctx) {
+		return "on " + when + ", before this reporting period began"
+	}
+
+	return "on " + when
+}
+
+// inventoryFreshness is the evidence row carrying that date.
+func inventoryFreshness(ctx ReportContext) EvidenceItem {
+	return EvidenceItem{
+		Component: "AI-BOM scan", Kind: "provenance",
+		Detail: "the inventory these components come from was taken " + inventoryAgeClause(ctx),
+		Link:   invLink(ctx),
+	}
+}
+
+// ── controls the report path did not emit ───────────────────────────────────
+//
+// Eight Annex A controls had a mapper on the per-scan path and none here, so
+// the report — which sees strictly more evidence than a single scan — covered
+// less of the standard than the scan did. These are written against the report
+// context rather than reusing the inventory-only versions: the point of the
+// report path is that it has posture a scan does not.
+
+// rA32 covers roles and responsibilities. Who is accountable is an
+// organizational arrangement, but *whether the people are identifiable at all*
+// is observable, and so is whether decisions carry their names.
+func rA32(ctx ReportContext) ControlMapping {
+	m := ctl("A.3", "A.3.2", "AI roles and responsibilities",
+		"Roles and responsibilities for the AI management system are defined and allocated.")
+	if ctx.MemberCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.MemberCount, "platform account"), Kind: "identity",
+			Detail: itoa(ctx.MfaMemberCount) + " protected by a second factor — the people who can act on this estate are individually identifiable",
+			Link:   routeMembers,
+		})
+	}
+	attributable := ctx.SsvcDecisionByHuman + ctx.SuppressionWithOwner
+	if attributable > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(attributable, "attributable decision"), Kind: "review",
+			Detail: "risk decisions carrying the name of whoever made them", Link: routeFindings,
+		})
+	}
+	if n := ctx.ManualEvidenceCount("A.3.2"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the organization's allocation of AI management-system roles",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "The people who can act on the estate are identifiable, decisions carry their names, and the organization has attached its role allocation."
+
+		return m
+	}
+	switch {
+	case ctx.MemberCount == 0:
+		m.Status = StatusGap
+		m.Rationale = "No accounts are recorded against this estate, so no one is identifiable as holding any role in it."
+		m.Gaps = append(m.Gaps, "No identifiable role-holder")
+	case attributable == 0:
+		m.Status = StatusPartial
+		m.Rationale = "People with access to the estate are identifiable, but no decision in it carries a name, so responsibility is allocated on paper at best."
+		m.Gaps = append(m.Gaps, "No decision is attributable to a named person")
+		m.Gaps = append(m.Gaps, "No documented role allocation on record")
+	default:
+		m.Status = StatusPartial
+		m.Rationale = "Named people are making recorded decisions about the AI estate. The formal allocation of AI management-system roles is a document the organization writes, and none is attached."
+		m.Gaps = append(m.Gaps, "No documented role allocation on record")
+	}
+
+	return m
+}
+
+// rA33 covers reporting of concerns. The observable half is whether a channel
+// exists that carries something and reaches a person.
+func rA33(ctx ReportContext) ControlMapping {
+	m := ctl("A.3", "A.3.3", "Reporting of concerns",
+		"A process to report concerns about the organization's role with respect to an AI system is defined.")
+	if ctx.AlertCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AlertCount, "alert"), Kind: "log",
+			Detail: "raised in the period, " + itoa(ctx.AlertsAcknowledged) + " acknowledged by " + plural(ctx.AlertsAcknowledgers, "responder"),
+		})
+	}
+	if len(ctx.NotifyIntegrations) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: "Notification routes", Kind: "policy",
+			Detail: "concerns raised by the platform are delivered to " + joinNames(ctx.NotifyIntegrations, "the configured routes"),
+		})
+	}
+	if n := ctx.ManualEvidenceCount("A.3.3"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the organization's concern-reporting process and how it is made known",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "A reporting channel carries alerts to named responders, and the organization has attached the process document that defines how concerns are raised."
+
+		return m
+	}
+	if ctx.AlertCount == 0 && len(ctx.NotifyIntegrations) == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No alert was raised and no delivery route is configured — nothing evidences a channel by which a concern could reach anyone."
+		m.Gaps = append(m.Gaps, "No reporting channel evidenced")
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "A channel exists and carries machine-raised concerns to responders. A process for a *person* to report a concern about the organization's role is a procedure no artifact here evidences."
+	m.Gaps = append(m.Gaps, "No documented concern-reporting process")
+
+	return m
+}
+
+// rA45 covers system and computing resources.
+func rA45(ctx ReportContext, inv inventory) ControlMapping {
+	m := ctl("A.4", "A.4.5", "System & computing resources",
+		"System and computing resources used by the AI system are documented.")
+	n := len(inv.services) + len(inv.accelerators)
+	if n == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No serving runtime or compute resource is recorded in the inventory, so the resources the AI system uses are undocumented."
+		m.Gaps = append(m.Gaps, "No serving runtime or accelerator inventoried")
+
+		return m
+	}
+	sortByName(inv.accelerators)
+	for _, a := range inv.accelerators {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: a.Name, Kind: "accelerator", Detail: "compute resource declared in the deployment manifests", Link: invLink(ctx)})
+	}
+	sortByName(inv.services)
+	for _, s := range inv.services {
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: s.Name, Kind: "runtime", Detail: "serving or inference resource — " + s.Category, Link: invLink(ctx)})
+	}
+	m.Evidence = append(m.Evidence, inventoryFreshness(ctx))
+	if inventoryStale(ctx) {
+		m.Status = StatusPartial
+		m.Rationale = plural(n, "system and computing resource") + " documented, from an inventory taken " + inventoryAgeClause(ctx) + " — it may not describe what the system ran on during this period."
+		m.Gaps = append(m.Gaps, "The AI inventory predates the reporting period")
+
+		return m
+	}
+	m.Status = StatusSatisfied
+	m.Rationale = plural(n, "system and computing resource") + " documented from the deployment manifests, inventoried " + inventoryAgeClause(ctx) + "."
+
+	return m
+}
+
+// rA54 covers assessing impacts on individuals and society — a study the
+// organization runs. The report can say what would feed it.
+func rA54(ctx ReportContext) ControlMapping {
+	m := ctl("A.5", "A.5.4", "Assessing impacts on individuals & society",
+		"The organization assesses the potential impacts of the AI system on individuals and society.")
+	if n := ctx.ManualEvidenceCount("A.5.4"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the organization's assessment of impacts on individuals and society",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "The organization has attached its assessment of the AI system's impacts on individuals and society. Vulnetix does not read the attachment — an assessor samples it."
+
+		return m
+	}
+	if ctx.AiFirewallGuardrailCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.AiFirewallGuardrailCount, "guardrail"), Kind: "policy",
+			Detail: itoa(ctx.AiFirewallEnforcingGuardrails) + " of them block or redact at the gateway — constraints the organization placed on how the AI may affect people",
+			Link:   routeAiFirewall,
+		})
+	}
+	m.Status = StatusInformational
+	m.Rationale = "Not evaluable from Vulnetix data — impacts on individuals and society are assessed by people, from context no scanner holds. Attach the assessment against this control and it will be reported."
+	m.Gaps = append(m.Gaps, "No impact assessment for individuals and society on record")
+
+	return m
+}
+
+// rA623 covers documentation of design and development.
+func rA623(ctx ReportContext, inv inventory) ControlMapping {
+	m := ctl("A.6", "A.6.2.3", "Documentation of design & development",
+		"The AI system's design and development are documented.")
+	if len(inv.all) == 0 && ctx.CycloneDXCount == 0 && ctx.CliManifestCount == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No AI inventory, SBOM or build manifest is recorded — nothing documents how the system is put together."
+		m.Gaps = append(m.Gaps, "No design or build documentation found")
+
+		return m
+	}
+	if ctx.CliManifestCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.CliManifestCount, "build manifest"), Kind: "provenance",
+			Detail: "captured with content hashes across " + joinNames(ctx.CliManifestEcosystems, "the scanned ecosystems") + " — the composition of each build is recorded, not described",
+			Link:   routeUploads,
+		})
+	}
+	if len(inv.all) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(inv.all), "AI component"), Kind: "provenance",
+			Detail: "inventoried with the SDKs, services and models the system is built from", Link: invLink(ctx),
+		})
+	}
+	if n := ctx.ManualEvidenceCount("A.6.2.3"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the design record: choices made, alternatives rejected and why",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "The composition of the system is recorded from its manifests and inventory, and the organization has attached the design record behind those choices."
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "What the system is built from is documented by its manifests and inventory. Why it was built that way — the design choices and the alternatives rejected — is a record the organization writes, and none is attached."
+	m.Gaps = append(m.Gaps, "No design record on record")
+
+	return m
+}
+
+// rA75 covers data provenance.
+func rA75(ctx ReportContext, inv inventory) ControlMapping {
+	m := ctl("A.7", "A.7.5", "Data provenance",
+		"The provenance of data used by the AI system is recorded and maintained.")
+	if len(inv.datasets) == 0 && len(inv.vectordbs) == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No dataset or retrieval store is inventoried, so no data provenance is recorded."
+		m.Gaps = append(m.Gaps, "No data artifact inventoried")
+
+		return m
+	}
+	sourced := 0
+	sortByName(inv.datasets)
+	for _, d := range inv.datasets {
+		detail := "dataset used by the AI system"
+		if d.DataSource != "" {
+			sourced++
+			detail += ", backed by " + d.DataSource
+		}
+		m.Evidence = append(m.Evidence, EvidenceItem{Component: d.Name, Kind: "dataset", Detail: detail, Link: invLink(ctx)})
+	}
+	m.Evidence = append(m.Evidence, inventoryFreshness(ctx))
+	switch {
+	case sourced == 0:
+		m.Status = StatusPartial
+		m.Rationale = "Datasets are inventoried, but none records where its data comes from — the inventory names the artifact and not its provenance."
+		m.Gaps = append(m.Gaps, "No dataset records its backing source")
+	case sourced < len(inv.datasets):
+		m.Status = StatusPartial
+		m.Rationale = itoa(sourced) + " of " + plural(len(inv.datasets), "dataset") + " record where the data comes from."
+		m.Gaps = append(m.Gaps, plural(len(inv.datasets)-sourced, "dataset")+" with no recorded source")
+	default:
+		m.Status = StatusSatisfied
+		m.Rationale = "Every inventoried dataset records the source its data is drawn from."
+	}
+
+	return m
+}
+
+// rA83 covers the information supplied to users of the AI system.
+func rA83(ctx ReportContext, inv inventory) ControlMapping {
+	m := ctl("A.8", "A.8.3", "Information to users of the AI system",
+		"Information about the AI system is provided to its users.")
+	if ctx.OpenVexCount > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.OpenVexCount, "VEX document"), Kind: "vex",
+			Detail: "machine-readable statements telling downstream users which vulnerabilities affect them and which do not",
+			Link:   routeUploads,
+		})
+	}
+	if sbom := ctx.CycloneDXCount + ctx.SPDXCount; sbom > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(sbom, "SBOM"), Kind: "sbom",
+			Detail: "component inventories a consumer can read to see what they are running", Link: routeUploads,
+		})
+	}
+	if len(inv.models) > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(inv.models), "model"), Kind: "model",
+			Detail: "identified with provider and family where the source discloses them", Link: invLink(ctx),
+		})
+	}
+	if n := ctx.ManualEvidenceCount("A.8.3"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the user-facing information about the AI system: its purpose, limitations and how to use it",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Machine-readable information reaches downstream users, and the organization has attached the user-facing documentation of the system's purpose and limitations."
+
+		return m
+	}
+	if len(m.Evidence) == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No VEX document, SBOM or model identification is published — nothing reaches a user of this system."
+		m.Gaps = append(m.Gaps, "No information published to users")
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "Machine-readable information — SBOMs, VEX statements and model identities — reaches downstream users. Documentation written *for* a user, describing purpose and limitations, is authored outside this platform and none is attached."
+	m.Gaps = append(m.Gaps, "No user-facing documentation on record")
+
+	return m
+}
+
+// rA102 covers the allocation of responsibilities across the AI life cycle
+// between the organization and its suppliers.
+func rA102(ctx ReportContext, inv inventory) ControlMapping {
+	m := ctl("A.10", "A.10.2", "Allocating responsibilities",
+		"Responsibilities within the AI life cycle are allocated between the organization, its partners, suppliers and customers.")
+	if len(inv.providers) > 0 {
+		names := make([]string, 0, len(inv.providers))
+		for p := range inv.providers {
+			names = append(names, p)
+		}
+		sort.Strings(names)
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(len(names), "AI supplier"), Kind: "service",
+			Detail: "in the supply chain: " + joinNames(names, "none identified"), Link: invLink(ctx),
+		})
+	}
+	if ctx.SuppressionWithOwner > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(ctx.SuppressionWithOwner, "owned risk acceptance"), Kind: "vex",
+			Detail: "decisions about supplier-borne risk, each naming the person who accepted it", Link: routePolicies,
+		})
+	}
+	if n := ctx.ManualEvidenceCount("A.10.2"); n > 0 {
+		m.Evidence = append(m.Evidence, EvidenceItem{
+			Component: plural(n, "attached document"), Kind: "manual",
+			Detail: "the agreed allocation of responsibilities with partners, suppliers and customers",
+		})
+		m.Status = StatusSatisfied
+		m.Rationale = "Suppliers are identified, decisions about their risk are owned by named people, and the organization has attached the agreed allocation of responsibilities."
+
+		return m
+	}
+	if len(inv.providers) == 0 {
+		m.Status = StatusGap
+		m.Rationale = "No AI supplier is identified in the inventory, so no allocation of responsibilities across the life cycle is evidenced."
+		m.Gaps = append(m.Gaps, "No supplier identified")
+
+		return m
+	}
+	m.Status = StatusPartial
+	m.Rationale = "The suppliers in the life cycle are identified and risk decisions about them are owned. Who is responsible for what between the organization and each supplier is an agreement no artifact here records."
+	m.Gaps = append(m.Gaps, "No recorded allocation of responsibilities with suppliers")
+
+	return m
+}
