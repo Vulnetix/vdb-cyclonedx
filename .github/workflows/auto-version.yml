@@ -7,6 +7,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: auto-version
+  cancel-in-progress: false
+
 jobs:
   auto-version:
     runs-on: [self-hosted, Linux, X64, vulnetix-local]
@@ -17,9 +21,9 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
 
       - name: Set up Git user
         run: |
