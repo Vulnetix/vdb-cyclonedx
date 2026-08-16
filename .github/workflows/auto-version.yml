@@ -6,6 +6,15 @@ on:
 
 permissions:
   contents: write
+  # Required to push a tag whose tree contains .github/workflows/*. Without it
+  # GitHub rejects the push with "refusing to allow a GitHub App to create or
+  # update workflow ... without `workflows` permission", and the version tag is
+  # never created — the release that depends on it then never runs.
+  #
+  # It started failing the moment this repository gained a second workflow
+  # file, not because anything about the tagging changed. cli and osm-submitter
+  # already carry this line.
+  actions: write
 
 concurrency:
   group: auto-version
