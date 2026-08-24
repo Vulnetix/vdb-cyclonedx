@@ -28,4 +28,4 @@ See [PLAN.md](./PLAN.md) for the full design and extraction plan.
 
 Scaffold + plan. Implementation extracts `internal/processor/{cyclonedx,parity,purl}.go` from
 `vdb-api-cyclonedx-uploads`, with embedded official JSON schemas for validation.
-<!-- ci-touch: 2026-08-14T04:04:34Z -->
+<!-- ci-touch: 2026-08-24T13:13:32Z -->
