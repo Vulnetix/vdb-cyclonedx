@@ -23,9 +23,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 // ── Property keys ────────────────────────────────────────────────────────────
@@ -214,112 +211,18 @@ type AIBOMProject struct {
 
 // AIBOMOptions configures BuildAIBOM.
 type AIBOMOptions struct {
-	SpecVersion string        // default "1.7"
-	ToolName    string        // default "vulnetix-aibom"
-	ToolVersion string        // default "cli"
+	SpecVersion string // default DefaultSpecVersion
+	// Authorship states who created this document and at which lifecycle stage
+	// its data was captured. When set it takes precedence over the three fields
+	// below, which remain honoured so existing callers keep working.
+	Authorship  *Authorship
+	ToolName    string        // default ToolAIBOM
+	ToolVersion string        // default UnknownToolVersion
 	GeneratedAt string        // RFC3339; default time.Now().UTC()
 	Project     *AIBOMProject // nil → minimal project component
 }
 
-// ── Writer model (AIBOM-specific, minimal subset of CycloneDX) ───────────────
-
-type aibomDoc struct {
-	BOMFormat    string         `json:"bomFormat"`
-	SpecVersion  string         `json:"specVersion"`
-	SerialNumber string         `json:"serialNumber"`
-	Version      int            `json:"version"`
-	Metadata     *aibomMetadata `json:"metadata,omitempty"`
-	Components   []aibomComp    `json:"components,omitempty"`
-	Dependencies []aibomDep     `json:"dependencies,omitempty"`
-}
-
-type aibomMetadata struct {
-	Timestamp  string           `json:"timestamp,omitempty"`
-	Lifecycles []aibomLifecycle `json:"lifecycles,omitempty"`
-	Tools      *aibomTools      `json:"tools,omitempty"`
-	Component  *aibomComp       `json:"component,omitempty"`
-	// Authors names who is making the claims in this document. It matters most
-	// for VEX, where every statement is an assertion by somebody and a document
-	// that does not say who asserted it is worth less than one that does.
-	Authors    []aibomContact `json:"authors,omitempty"`
-	Properties []aibomProp    `json:"properties,omitempty"`
-}
-
-type aibomLifecycle struct {
-	Phase string `json:"phase"`
-}
-
-type aibomTools struct {
-	Components []aibomComp `json:"components,omitempty"`
-}
-
-type aibomComp struct {
-	Type               string          `json:"type"`
-	BOMRef             string          `json:"bom-ref,omitempty"`
-	Name               string          `json:"name"`
-	Version            string          `json:"version,omitempty"`
-	Group              string          `json:"group,omitempty"`
-	Publisher          string          `json:"publisher,omitempty"`
-	Description        string          `json:"description,omitempty"`
-	Scope              string          `json:"scope,omitempty"`
-	Purl               string          `json:"purl,omitempty"`
-	Hashes             []aibomHash     `json:"hashes,omitempty"`
-	Licenses           []aibomLicense  `json:"licenses,omitempty"`
-	Authors            []aibomContact  `json:"authors,omitempty"`
-	ExternalReferences []aibomExtRef   `json:"externalReferences,omitempty"`
-	Properties         []aibomProp     `json:"properties,omitempty"`
-	ModelCard          *aibomModelCard `json:"modelCard,omitempty"`
-	// CryptoProperties is set only by the CBOM builder (cbom.go) on
-	// "cryptographic-asset" components; the AIBOM builder never sets it
-	// (omitempty keeps it absent from AIBOM output).
-	CryptoProperties *cdxCryptoProperties `json:"cryptoProperties,omitempty"`
-}
-
-type aibomHash struct {
-	Alg     string `json:"alg"`
-	Content string `json:"content"`
-}
-
-type aibomLicense struct {
-	License    *aibomLicenseData `json:"license,omitempty"`
-	Expression string            `json:"expression,omitempty"`
-}
-
-type aibomLicenseData struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
-}
-
-type aibomContact struct {
-	Name  string `json:"name,omitempty"`
-	Email string `json:"email,omitempty"`
-}
-
-type aibomExtRef struct {
-	Type string `json:"type"`
-	URL  string `json:"url"`
-}
-
-type aibomProp struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
-}
-
-type aibomModelCard struct {
-	ModelParameters *aibomModelParams `json:"modelParameters,omitempty"`
-}
-
-type aibomModelParams struct {
-	Task              string `json:"task,omitempty"`
-	ModelArchitecture string `json:"modelArchitecture,omitempty"`
-}
-
-type aibomDep struct {
-	Ref       string   `json:"ref"`
-	DependsOn []string `json:"dependsOn,omitempty"`
-}
-
-func mkProp(name, value string) aibomProp { return aibomProp{Name: name, Value: value} }
+func mkProp(name, value string) Property { return Property{Name: name, Value: value} }
 
 func boolStr(b bool) string {
 	if b {
@@ -352,40 +255,25 @@ func BuildAIBOM(det AIDetections, opts AIBOMOptions) ([]byte, error) {
 func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	spec := opts.SpecVersion
 	if spec == "" {
-		spec = "1.7"
+		spec = DefaultSpecVersion
 	}
-	toolName := opts.ToolName
-	if toolName == "" {
-		toolName = "vulnetix-aibom"
-	}
-	toolVersion := opts.ToolVersion
-	if toolVersion == "" {
-		toolVersion = "cli"
-	}
-	ts := opts.GeneratedAt
-	if ts == "" {
-		ts = time.Now().UTC().Format(time.RFC3339)
-	}
+	// An AI inventory is read out of source and configuration rather than out of
+	// a built artefact, so its default capture stages are design and discovery.
+	authorship := authorshipFrom(opts.Authorship, nonEmpty(opts.ToolName, ToolAIBOM), opts.ToolVersion, opts.GeneratedAt, PhaseDesign, PhaseDiscovery)
 
 	projComp, envProps := buildProjectComponent(opts.Project)
 
-	doc := &aibomDoc{
-		BOMFormat:    "CycloneDX",
-		SpecVersion:  spec,
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
-		Version:      1,
-		Metadata: &aibomMetadata{
-			Timestamp:  ts,
-			Lifecycles: []aibomLifecycle{{Phase: "build"}},
-			Tools:      &aibomTools{Components: []aibomComp{{Type: "application", Name: toolName, Version: toolVersion}}},
-			Component:  projComp,
-		},
+	doc := &Document{
+		BOMFormat:   "CycloneDX",
+		SpecVersion: spec,
+		Metadata:    &Metadata{Component: projComp},
 	}
+	_, _ = ApplyAuthorship(doc, authorship)
 
 	projRef := projComp.BOMRef
 	doc.Metadata.Properties = append(doc.Metadata.Properties,
 		mkProp(PropAIProfile, "ai-usage"),
-		mkProp(PropAIGenerator, toolName),
+		mkProp(PropAIGenerator, authorship.Tool.Name),
 	)
 	if det.CatalogVersion != "" {
 		doc.Metadata.Properties = append(doc.Metadata.Properties, mkProp(PropAICatalogVersion, det.CatalogVersion))
@@ -409,9 +297,9 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	// AI coding tools / agents → application components.
 	for _, t := range det.Tools {
 		ref := "urn:ai-tool:" + t.ID
-		comp := aibomComp{Type: "application", BOMRef: ref, Name: t.Name, Publisher: t.Vendor, Group: t.Vendor}
+		comp := Component{Type: "application", BOMRef: ref, Name: t.Name, Publisher: t.Vendor, Group: t.Vendor}
 		if t.Homepage != "" {
-			comp.ExternalReferences = append(comp.ExternalReferences, aibomExtRef{Type: "website", URL: t.Homepage})
+			comp.ExternalReferences = append(comp.ExternalReferences, ExternalReference{Type: "website", URL: t.Homepage})
 		}
 		category := "coding-agent"
 		switch t.Type {
@@ -440,7 +328,7 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	libRefByID := map[string]string{}
 	for _, l := range det.Libraries {
 		ref := "urn:ai-lib:" + l.ID
-		comp := aibomComp{Type: "library", BOMRef: ref, Name: l.Name, Publisher: l.Provider, Purl: l.Purl}
+		comp := Component{Type: "library", BOMRef: ref, Name: l.Name, Publisher: l.Provider, Purl: l.Purl}
 		comp.Properties = append(comp.Properties, mkProp(PropAICategory, "ai-sdk"), mkProp(PropAILibraryID, l.ID))
 		if l.Provider != "" {
 			comp.Properties = append(comp.Properties, mkProp(PropAIProvider, l.Provider))
@@ -461,9 +349,9 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	// model name literals → machine-learning-model components.
 	for i, m := range det.Models {
 		ref := fmt.Sprintf("urn:ai-model:%d", i)
-		comp := aibomComp{
+		comp := Component{
 			Type: "machine-learning-model", BOMRef: ref, Name: m.Name, Publisher: m.Provider, Group: m.Provider,
-			ModelCard: &aibomModelCard{ModelParameters: &aibomModelParams{Task: m.Task, ModelArchitecture: m.Name}},
+			ModelCard: &ModelCard{ModelParameters: &ModelParameters{Task: m.Task, ModelArchitecture: m.Name}},
 		}
 		comp.Properties = append(comp.Properties, mkProp(PropAICategory, "model"), mkProp(PropAIModelKnown, boolStr(m.Known)))
 		if m.Provider != "" {
@@ -495,9 +383,9 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	// AI infrastructure runtimes/workloads (from IaC) → application components.
 	for _, inf := range det.Infrastructure {
 		ref := "urn:ai-infra:" + inf.ID
-		comp := aibomComp{Type: "application", BOMRef: ref, Name: inf.Name, Version: inf.Version}
+		comp := Component{Type: "application", BOMRef: ref, Name: inf.Name, Version: inf.Version}
 		if inf.Homepage != "" {
-			comp.ExternalReferences = append(comp.ExternalReferences, aibomExtRef{Type: "website", URL: inf.Homepage})
+			comp.ExternalReferences = append(comp.ExternalReferences, ExternalReference{Type: "website", URL: inf.Homepage})
 		}
 		comp.Properties = append(comp.Properties, mkProp(PropAICategory, nonEmpty(inf.Category, "infrastructure")), mkProp(PropAIInfraID, inf.ID))
 		if inf.Image != "" {
@@ -520,7 +408,7 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 	// Model artifacts / datasets → data components.
 	for i, d := range det.Data {
 		ref := fmt.Sprintf("urn:ai-data:%d", i)
-		comp := aibomComp{Type: "data", BOMRef: ref, Name: d.Name}
+		comp := Component{Type: "data", BOMRef: ref, Name: d.Name}
 		comp.Properties = append(comp.Properties, mkProp(PropAICategory, "data"))
 		if d.Kind != "" {
 			comp.Properties = append(comp.Properties, mkProp(PropAIDataKind, d.Kind))
@@ -548,12 +436,12 @@ func BuildAIBOMDocument(det AIDetections, opts AIBOMOptions) any {
 
 // buildProjectComponent builds metadata.component plus the env properties from a
 // project description. A nil project yields the minimal default component.
-func buildProjectComponent(p *AIBOMProject) (*aibomComp, []aibomProp) {
+func buildProjectComponent(p *AIBOMProject) (*Component, []Property) {
 	if p == nil {
-		return &aibomComp{Type: "application", BOMRef: "urn:project", Name: "project"}, nil
+		return &Component{Type: "application", BOMRef: "urn:project", Name: "project"}, nil
 	}
 
-	comp := &aibomComp{
+	comp := &Component{
 		Type:        "application",
 		BOMRef:      "urn:project",
 		Name:        nonEmpty(p.Name, "project"),
@@ -561,7 +449,7 @@ func buildProjectComponent(p *AIBOMProject) (*aibomComp, []aibomProp) {
 		Description: nonEmpty(p.Description, "Source code repository"),
 	}
 	for _, u := range p.RemoteURLs {
-		comp.ExternalReferences = append(comp.ExternalReferences, aibomExtRef{Type: "vcs", URL: normalizeVCSURL(u)})
+		comp.ExternalReferences = append(comp.ExternalReferences, ExternalReference{Type: "vcs", URL: normalizeVCSURL(u)})
 	}
 	if p.Branch != "" {
 		comp.Properties = append(comp.Properties, mkProp(PropGitBranch, p.Branch))
@@ -590,10 +478,10 @@ func buildProjectComponent(p *AIBOMProject) (*aibomComp, []aibomProp) {
 		comp.Properties = append(comp.Properties, mkProp(PropGitRepoRoot, p.RepoRoot))
 	}
 	for _, c := range p.RecentCommitters {
-		comp.Authors = append(comp.Authors, aibomContact{Name: c.Name, Email: c.Email})
+		comp.Authors = append(comp.Authors, OrganizationalContact{Name: c.Name, Email: c.Email})
 	}
 
-	var envProps []aibomProp
+	var envProps []Property
 	if s := p.System; s != nil {
 		if s.Hostname != "" {
 			envProps = append(envProps, mkProp(PropEnvHostname, s.Hostname))
@@ -614,7 +502,7 @@ func buildProjectComponent(p *AIBOMProject) (*aibomComp, []aibomProp) {
 	return comp, envProps
 }
 
-func appendEvidenceProps(comp *aibomComp, ev []AIEvidence) {
+func appendEvidenceProps(comp *Component, ev []AIEvidence) {
 	if len(ev) == 0 {
 		return
 	}
@@ -649,8 +537,8 @@ func FormatEvidence(e AIEvidence) string {
 	return b.String()
 }
 
-func buildDeps(deps map[string][]string, validRefs map[string]bool) []aibomDep {
-	out := make([]aibomDep, 0, len(deps))
+func buildDeps(deps map[string][]string, validRefs map[string]bool) []Dependency {
+	out := make([]Dependency, 0, len(deps))
 	for ref := range deps {
 		if !validRefs[ref] {
 			continue
@@ -665,7 +553,7 @@ func buildDeps(deps map[string][]string, validRefs map[string]bool) []aibomDep {
 			on = append(on, t)
 		}
 		sort.Strings(on)
-		out = append(out, aibomDep{Ref: ref, DependsOn: on})
+		out = append(out, Dependency{Ref: ref, DependsOn: on})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
 	return out

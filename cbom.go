@@ -28,9 +28,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 // ── Property keys ────────────────────────────────────────────────────────────
@@ -188,51 +185,15 @@ type (
 
 // CBOMOptions configures BuildCBOM.
 type CBOMOptions struct {
-	SpecVersion string       // default "1.7"
-	ToolName    string       // default "vulnetix-cbom"
-	ToolVersion string       // default "cli"
+	SpecVersion string // default DefaultSpecVersion
+	// Authorship states who created this document and at which lifecycle stage
+	// its data was captured. When set it takes precedence over the three fields
+	// below, which remain honoured so existing callers keep working.
+	Authorship  *Authorship
+	ToolName    string       // default ToolCBOM
+	ToolVersion string       // default UnknownToolVersion
 	GeneratedAt string       // RFC3339; default time.Now().UTC()
 	Project     *CBOMProject // nil → minimal project component
-}
-
-// ── CycloneDX cryptoProperties writer model ──────────────────────────────────
-
-type cdxCryptoProperties struct {
-	AssetType                  string                         `json:"assetType"`
-	AlgorithmProperties        *cdxAlgorithmProperties        `json:"algorithmProperties,omitempty"`
-	CertificateProperties      *cdxCertificateProperties      `json:"certificateProperties,omitempty"`
-	RelatedCryptoMaterialProps *cdxRelatedCryptoMaterialProps `json:"relatedCryptoMaterialProperties,omitempty"`
-	OID                        string                         `json:"oid,omitempty"`
-}
-
-type cdxAlgorithmProperties struct {
-	Primitive                string   `json:"primitive,omitempty"`
-	ParameterSetIdentifier   string   `json:"parameterSetIdentifier,omitempty"`
-	Curve                    string   `json:"curve,omitempty"`
-	Mode                     string   `json:"mode,omitempty"`
-	Padding                  string   `json:"padding,omitempty"`
-	CryptoFunctions          []string `json:"cryptoFunctions,omitempty"`
-	ClassicalSecurityLevel   *int     `json:"classicalSecurityLevel,omitempty"`
-	NISTQuantumSecurityLevel *int     `json:"nistQuantumSecurityLevel,omitempty"`
-}
-
-type cdxCertificateProperties struct {
-	SubjectName           string `json:"subjectName,omitempty"`
-	IssuerName            string `json:"issuerName,omitempty"`
-	NotValidBefore        string `json:"notValidBefore,omitempty"`
-	NotValidAfter         string `json:"notValidAfter,omitempty"`
-	SignatureAlgorithmRef string `json:"signatureAlgorithmRef,omitempty"`
-	SubjectPublicKeyRef   string `json:"subjectPublicKeyRef,omitempty"`
-	CertificateFormat     string `json:"certificateFormat,omitempty"`
-	CertificateExtension  string `json:"certificateExtension,omitempty"`
-}
-
-type cdxRelatedCryptoMaterialProps struct {
-	Type         string `json:"type,omitempty"`
-	ID           string `json:"id,omitempty"`
-	AlgorithmRef string `json:"algorithmRef,omitempty"`
-	Size         *int   `json:"size,omitempty"`
-	Format       string `json:"format,omitempty"`
 }
 
 // ── BuildCBOM (creating) ─────────────────────────────────────────────────────
@@ -259,35 +220,21 @@ func BuildCBOM(det CryptoDetections, opts CBOMOptions) ([]byte, error) {
 func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 	spec := opts.SpecVersion
 	if spec == "" {
-		spec = "1.7"
+		spec = DefaultSpecVersion
 	}
-	toolName := opts.ToolName
-	if toolName == "" {
-		toolName = "vulnetix-cbom"
-	}
-	toolVersion := opts.ToolVersion
-	if toolVersion == "" {
-		toolVersion = "cli"
-	}
-	ts := opts.GeneratedAt
-	if ts == "" {
-		ts = time.Now().UTC().Format(time.RFC3339)
-	}
+	// A crypto inventory is found by observing source, config and certificates
+	// on disk, which is what the discovery phase describes.
+	authorship := authorshipFrom(opts.Authorship, nonEmpty(opts.ToolName, ToolCBOM), opts.ToolVersion, opts.GeneratedAt, PhaseDiscovery)
+	toolName := authorship.Tool.Name
 
 	projComp, envProps := buildProjectComponent(opts.Project)
 
-	doc := &aibomDoc{
-		BOMFormat:    "CycloneDX",
-		SpecVersion:  spec,
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
-		Version:      1,
-		Metadata: &aibomMetadata{
-			Timestamp:  ts,
-			Lifecycles: []aibomLifecycle{{Phase: "build"}},
-			Tools:      &aibomTools{Components: []aibomComp{{Type: "application", Name: toolName, Version: toolVersion}}},
-			Component:  projComp,
-		},
+	doc := &Document{
+		BOMFormat:   "CycloneDX",
+		SpecVersion: spec,
+		Metadata:    &Metadata{Component: projComp},
 	}
+	_, _ = ApplyAuthorship(doc, authorship)
 
 	summary := ComputeCryptoSummary(det)
 	projRef := projComp.BOMRef
@@ -321,11 +268,11 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 		if a.ParameterSetIdentifier != "" {
 			ref += ":" + sanitizeRef(a.ParameterSetIdentifier)
 		}
-		comp := aibomComp{
+		comp := Component{
 			Type:   "cryptographic-asset",
 			BOMRef: ref,
 			Name:   a.Name,
-			CryptoProperties: &cdxCryptoProperties{
+			CryptoProperties: &CryptoProperties{
 				AssetType:           "algorithm",
 				AlgorithmProperties: algorithmProps(a),
 				OID:                 a.OID,
@@ -362,7 +309,7 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 	// crypto libraries → library components.
 	for _, l := range det.Libraries {
 		ref := "urn:crypto:library:" + l.ID
-		comp := aibomComp{Type: "library", BOMRef: ref, Name: l.Name, Publisher: l.Provider, Purl: l.Purl}
+		comp := Component{Type: "library", BOMRef: ref, Name: l.Name, Publisher: l.Provider, Purl: l.Purl}
 		comp.Properties = append(comp.Properties, mkProp(PropCryptoCategory, "library"), mkProp(PropCryptoLibraryID, l.ID))
 		if l.Provider != "" {
 			comp.Properties = append(comp.Properties, mkProp(PropCryptoProvider, l.Provider))
@@ -383,7 +330,7 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 	// related-crypto-material (public-key) component each.
 	for i, ct := range det.Certificates {
 		ref := fmt.Sprintf("urn:crypto:certificate:%d", i)
-		certProps := &cdxCertificateProperties{
+		certProps := &CertificateProperties{
 			SubjectName:          ct.Subject,
 			IssuerName:           ct.Issuer,
 			NotValidBefore:       ct.NotBefore,
@@ -398,11 +345,11 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 		// public key as related-crypto-material.
 		keyRef := ref + ":key"
 		keyType := nonEmpty(ct.PublicKeyType, "public-key")
-		keyComp := aibomComp{
+		keyComp := Component{
 			Type:   "cryptographic-asset",
 			BOMRef: keyRef,
 			Name:   nonEmpty(ct.PublicKeyAlgorithm, "public-key") + " (" + ct.Name + ")",
-			CryptoProperties: &cdxCryptoProperties{
+			CryptoProperties: &CryptoProperties{
 				AssetType:                  "related-crypto-material",
 				RelatedCryptoMaterialProps: relatedKeyProps(keyType, ct, algoRefByName),
 			},
@@ -415,11 +362,11 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 		validRefs[keyRef] = true
 		certProps.SubjectPublicKeyRef = keyRef
 
-		comp := aibomComp{
+		comp := Component{
 			Type:   "cryptographic-asset",
 			BOMRef: ref,
 			Name:   ct.Name,
-			CryptoProperties: &cdxCryptoProperties{
+			CryptoProperties: &CryptoProperties{
 				AssetType:             "certificate",
 				CertificateProperties: certProps,
 			},
@@ -448,8 +395,8 @@ func BuildCBOMDocument(det CryptoDetections, opts CBOMOptions) any {
 // algorithmProps builds the CycloneDX algorithmProperties for an asset, emitting
 // only schema-valid, non-empty fields. nistQuantumSecurityLevel is always set
 // (0 is meaningful: "not quantum-safe").
-func algorithmProps(a CryptoAsset) *cdxAlgorithmProperties {
-	p := &cdxAlgorithmProperties{
+func algorithmProps(a CryptoAsset) *AlgorithmProperties {
+	p := &AlgorithmProperties{
 		Primitive:              a.Primitive,
 		ParameterSetIdentifier: a.ParameterSetIdentifier,
 		Curve:                  a.Curve,
@@ -466,8 +413,8 @@ func algorithmProps(a CryptoAsset) *cdxAlgorithmProperties {
 	return p
 }
 
-func relatedKeyProps(keyType string, ct CryptoCert, algoRefByName map[string]string) *cdxRelatedCryptoMaterialProps {
-	p := &cdxRelatedCryptoMaterialProps{Type: keyType}
+func relatedKeyProps(keyType string, ct CryptoCert, algoRefByName map[string]string) *RelatedCryptoMaterialProperties {
+	p := &RelatedCryptoMaterialProperties{Type: keyType}
 	if ct.KeySize > 0 {
 		sz := ct.KeySize
 		p.Size = &sz
@@ -478,7 +425,7 @@ func relatedKeyProps(keyType string, ct CryptoCert, algoRefByName map[string]str
 	return p
 }
 
-func appendCryptoEvidenceProps(comp *aibomComp, ev []CryptoEvidence) {
+func appendCryptoEvidenceProps(comp *Component, ev []CryptoEvidence) {
 	if len(ev) == 0 {
 		return
 	}

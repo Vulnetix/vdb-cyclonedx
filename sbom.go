@@ -9,9 +9,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 const (
@@ -124,9 +121,13 @@ type SBOMInventory struct {
 
 // SBOMOptions configures BuildSBOM.
 type SBOMOptions struct {
-	SpecVersion string        // default "1.7"
-	ToolName    string        // default "vulnetix-cdx"
-	ToolVersion string        // default "cli"
+	SpecVersion string // default DefaultSpecVersion
+	// Authorship states who created this document and at which lifecycle stage
+	// its data was captured. When set it takes precedence over the three fields
+	// below, which remain honoured so existing callers keep working.
+	Authorship  *Authorship
+	ToolName    string        // default ToolCDX
+	ToolVersion string        // default UnknownToolVersion
 	GeneratedAt string        // RFC3339; default time.Now().UTC()
 	Project     *AIBOMProject // nil -> minimal project component
 	// CanonicalSPDXID optionally resolves a license string to its canonical
@@ -156,33 +157,27 @@ func BuildSBOM(inv SBOMInventory, opts SBOMOptions) ([]byte, error) {
 // BuildSBOMDocument assembles a combined package SBOM/AIBOM/CBOM document
 // without validating it.
 func BuildSBOMDocument(inv SBOMInventory, opts SBOMOptions) any {
-	spec := nonEmpty(opts.SpecVersion, "1.7")
-	toolName := nonEmpty(opts.ToolName, "vulnetix-cdx")
-	toolVersion := nonEmpty(opts.ToolVersion, "cli")
-	ts := opts.GeneratedAt
-	if ts == "" {
-		ts = time.Now().UTC().Format(time.RFC3339)
-	}
+	spec := nonEmpty(opts.SpecVersion, DefaultSpecVersion)
+	authorship := authorshipFrom(opts.Authorship, nonEmpty(opts.ToolName, ToolCDX), opts.ToolVersion, opts.GeneratedAt, PhaseBuild)
 	projComp, envProps := buildProjectComponent(opts.Project)
 	projRef := projComp.BOMRef
 
-	doc := &aibomDoc{
-		BOMFormat:    "CycloneDX",
-		SpecVersion:  spec,
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
-		Version:      1,
-		Metadata: &aibomMetadata{
-			Timestamp:  ts,
-			Lifecycles: []aibomLifecycle{{Phase: "build"}},
-			Tools:      &aibomTools{Components: []aibomComp{{Type: "application", Name: toolName, Version: toolVersion}}},
-			Component:  projComp,
-			Properties: []aibomProp{
+	doc := &Document{
+		BOMFormat:   "CycloneDX",
+		SpecVersion: spec,
+		Metadata: &Metadata{
+			Component: projComp,
+			Properties: []Property{
 				mkProp(PropSBOMProfile, "software"),
-				mkProp(PropSBOMGenerator, toolName),
+				mkProp(PropSBOMGenerator, authorship.Tool.Name),
 				mkProp(PropSBOMPackagesDetected, strconv.Itoa(len(inv.Packages))),
 			},
 		},
 	}
+	// authorshipFrom always names a tool, so the only failure mode Validate has
+	// cannot occur here; the returned downgrades are surfaced by BuildSBOM's
+	// schema validation if the projection was not enough.
+	_, _ = ApplyAuthorship(doc, authorship)
 	doc.Metadata.Properties = append(doc.Metadata.Properties, envProps...)
 
 	validRefs := map[string]bool{projRef: true}
@@ -212,16 +207,16 @@ func BuildSBOMDocument(inv SBOMInventory, opts SBOMOptions) any {
 
 	if inv.AIDetections != nil {
 		aiDoc, ok := BuildAIBOMDocument(*inv.AIDetections, AIBOMOptions{
-			SpecVersion: spec, ToolName: "vulnetix-aibom", ToolVersion: toolVersion, GeneratedAt: ts, Project: opts.Project,
-		}).(*aibomDoc)
+			SpecVersion: spec, ToolName: ToolAIBOM, ToolVersion: authorship.Tool.Version, GeneratedAt: doc.Metadata.Timestamp, Project: opts.Project,
+		}).(*Document)
 		if ok {
 			mergeSubBOM(doc, aiDoc, componentIndex, validRefs, deps)
 		}
 	}
 	if inv.CryptoDetections != nil {
 		cbomDoc, ok := BuildCBOMDocument(*inv.CryptoDetections, CBOMOptions{
-			SpecVersion: spec, ToolName: "vulnetix-cbom", ToolVersion: toolVersion, GeneratedAt: ts, Project: opts.Project,
-		}).(*aibomDoc)
+			SpecVersion: spec, ToolName: ToolCBOM, ToolVersion: authorship.Tool.Version, GeneratedAt: doc.Metadata.Timestamp, Project: opts.Project,
+		}).(*Document)
 		if ok {
 			mergeSubBOM(doc, cbomDoc, componentIndex, validRefs, deps)
 		}
@@ -238,7 +233,7 @@ func BuildSBOMDocument(inv SBOMInventory, opts SBOMOptions) any {
 	return doc
 }
 
-func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) aibomComp {
+func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) Component {
 	purl := pkg.Purl
 	if purl == "" {
 		purl = SBOMPurl(pkg.Name, pkg.Version, pkg.Ecosystem)
@@ -257,7 +252,7 @@ func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) 
 			compType = "container"
 		}
 	}
-	comp := aibomComp{
+	comp := Component{
 		Type:    compType,
 		BOMRef:  bomRef,
 		Name:    pkg.Name,
@@ -296,7 +291,7 @@ func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) 
 		switch alg {
 		case "MD5", "SHA-1", "SHA-256":
 			if isHexDigest(content, map[string]int{"MD5": 32, "SHA-1": 40, "SHA-256": 64}[alg]) {
-				comp.Hashes = append(comp.Hashes, aibomHash{Alg: alg, Content: strings.ToLower(content)})
+				comp.Hashes = append(comp.Hashes, Hash{Alg: alg, Content: strings.ToLower(content)})
 			} else {
 				addProp("vulnetix:checksum/"+strings.ToLower(alg), content)
 			}
@@ -305,7 +300,7 @@ func sbomPackageComponent(pkg SBOMPackage, canonicalSPDXID func(string) string) 
 				content = hex.EncodeToString(decoded)
 			}
 			if isHexDigest(content, 128) {
-				comp.Hashes = append(comp.Hashes, aibomHash{Alg: "SHA-512", Content: strings.ToLower(content)})
+				comp.Hashes = append(comp.Hashes, Hash{Alg: "SHA-512", Content: strings.ToLower(content)})
 			} else {
 				addProp("vulnetix:checksum/sha-512", content)
 			}
@@ -412,7 +407,7 @@ func sbomEnvironment(scope string) string {
 	}
 }
 
-func appendSBOMEvidenceProps(comp *aibomComp, ev []SBOMEvidence) {
+func appendSBOMEvidenceProps(comp *Component, ev []SBOMEvidence) {
 	if len(ev) == 0 {
 		return
 	}
@@ -440,7 +435,7 @@ func appendSBOMEvidenceProps(comp *aibomComp, ev []SBOMEvidence) {
 	}
 }
 
-func appendSignatureProps(comp *aibomComp, sigs []SBOMSignature) {
+func appendSignatureProps(comp *Component, sigs []SBOMSignature) {
 	for i, s := range sigs {
 		prefix := PropSBOMSignaturePrefix + strconv.Itoa(i) + "/"
 		addSigProp := func(name, value string) {
@@ -504,7 +499,7 @@ func isHexDigest(s string, length int) bool {
 	return true
 }
 
-func mergeSubBOM(dst, src *aibomDoc, componentIndex map[string]int, validRefs map[string]bool, deps map[string][]string) {
+func mergeSubBOM(dst, src *Document, componentIndex map[string]int, validRefs map[string]bool, deps map[string][]string) {
 	if src == nil {
 		return
 	}
@@ -534,7 +529,7 @@ func mergeSubBOM(dst, src *aibomDoc, componentIndex map[string]int, validRefs ma
 	}
 }
 
-func mergeToolComponent(tools *aibomTools, tool aibomComp) {
+func mergeToolComponent(tools *Tools, tool Component) {
 	if tools == nil {
 		return
 	}
@@ -547,7 +542,7 @@ func mergeToolComponent(tools *aibomTools, tool aibomComp) {
 	tools.Components = append(tools.Components, tool)
 }
 
-func componentDedupeKey(c aibomComp) string {
+func componentDedupeKey(c Component) string {
 	if c.Purl != "" {
 		return "purl:" + c.Purl
 	}
@@ -557,7 +552,7 @@ func componentDedupeKey(c aibomComp) string {
 	return strings.ToLower(c.Type + ":" + c.Name + "@" + c.Version)
 }
 
-func mergeComponent(dst *aibomComp, src aibomComp) {
+func mergeComponent(dst *Component, src Component) {
 	if dst.BOMRef == "" {
 		dst.BOMRef = src.BOMRef
 	}
@@ -592,7 +587,7 @@ func mergeComponent(dst *aibomComp, src aibomComp) {
 	dst.Properties = mergeProps(dst.Properties, src.Properties)
 }
 
-func mergeHashes(dst, src []aibomHash) []aibomHash {
+func mergeHashes(dst, src []Hash) []Hash {
 	seen := map[string]bool{}
 	for _, h := range dst {
 		seen[h.Alg+"="+h.Content] = true
@@ -607,9 +602,9 @@ func mergeHashes(dst, src []aibomHash) []aibomHash {
 	return dst
 }
 
-func mergeLicenses(dst, src []aibomLicense) []aibomLicense {
+func mergeLicenses(dst, src []LicenseChoice) []LicenseChoice {
 	seen := map[string]bool{}
-	keyOf := func(l aibomLicense) string {
+	keyOf := func(l LicenseChoice) string {
 		if l.Expression != "" {
 			return "expr:" + l.Expression
 		}
@@ -631,7 +626,7 @@ func mergeLicenses(dst, src []aibomLicense) []aibomLicense {
 	return dst
 }
 
-func mergeContacts(dst, src []aibomContact) []aibomContact {
+func mergeContacts(dst, src []OrganizationalContact) []OrganizationalContact {
 	seen := map[string]bool{}
 	for _, c := range dst {
 		seen[c.Name+"<"+c.Email+">"] = true
@@ -646,7 +641,7 @@ func mergeContacts(dst, src []aibomContact) []aibomContact {
 	return dst
 }
 
-func mergeExtRefs(dst, src []aibomExtRef) []aibomExtRef {
+func mergeExtRefs(dst, src []ExternalReference) []ExternalReference {
 	seen := map[string]bool{}
 	for _, r := range dst {
 		seen[r.Type+"="+r.URL] = true
@@ -661,7 +656,7 @@ func mergeExtRefs(dst, src []aibomExtRef) []aibomExtRef {
 	return dst
 }
 
-func mergeProps(dst, src []aibomProp) []aibomProp {
+func mergeProps(dst, src []Property) []Property {
 	seen := map[string]bool{}
 	for _, p := range dst {
 		seen[p.Name+"="+p.Value] = true
@@ -686,19 +681,19 @@ func mergeProps(dst, src []aibomProp) []aibomProp {
 // choice. Only license.id is enum-constrained, so a value is emitted there only
 // when canonicalSPDXID recognises it; everything else becomes an expression (for
 // compound SPDX) or a free-text name.
-func licenseChoiceWith(value string, canonicalSPDXID func(string) string) aibomLicense {
+func licenseChoiceWith(value string, canonicalSPDXID func(string) string) LicenseChoice {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.EqualFold(value, "UNKNOWN") {
-		return aibomLicense{}
+		return LicenseChoice{}
 	}
 	if canonicalSPDXID != nil {
 		if canon := canonicalSPDXID(value); canon != "" {
-			return aibomLicense{License: &aibomLicenseData{ID: canon}}
+			return LicenseChoice{License: &LicenseData{ID: canon}}
 		}
 	}
 	upper := strings.ToUpper(value)
 	if strings.Contains(upper, " OR ") || strings.Contains(upper, " AND ") || strings.Contains(upper, " WITH ") {
-		return aibomLicense{Expression: value}
+		return LicenseChoice{Expression: value}
 	}
-	return aibomLicense{License: &aibomLicenseData{Name: value}}
+	return LicenseChoice{License: &LicenseData{Name: value}}
 }

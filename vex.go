@@ -25,9 +25,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 )
 
 // The CycloneDX impact-analysis enums, from bom-1.7.schema.json. They are
@@ -111,9 +108,13 @@ type VEXFinding struct {
 
 // VEXOptions configures BuildCDXVEX.
 type VEXOptions struct {
-	SpecVersion string // default "1.7"
-	ToolName    string // default "vulnetix-cdx"
-	ToolVersion string // default "cli"
+	SpecVersion string // default DefaultSpecVersion
+	// Authorship states who created this document and at which lifecycle stage
+	// its claims were captured. When set it takes precedence over the fields
+	// below, which remain honoured so existing callers keep working.
+	Authorship  *Authorship
+	ToolName    string // default ToolVEX
+	ToolVersion string // default UnknownToolVersion
 	GeneratedAt string // RFC3339; default now
 	// AuthorName identifies who is making these claims. A VEX statement is an
 	// assertion by somebody, and a document that does not say who is asserting
@@ -122,52 +123,6 @@ type VEXOptions struct {
 	// Project describes the subject the claims are about, and becomes
 	// metadata.component.
 	Project *AIBOMProject
-}
-
-// vexDoc is the write-side document. The read-side CDXBom in cyclonedx.go has
-// no omitempty and no vulnerabilities, so it cannot be used to author one.
-type vexDoc struct {
-	BOMFormat    string         `json:"bomFormat"`
-	SpecVersion  string         `json:"specVersion"`
-	SerialNumber string         `json:"serialNumber"`
-	Version      int            `json:"version"`
-	Metadata     *aibomMetadata `json:"metadata,omitempty"`
-	Components   []aibomComp    `json:"components,omitempty"`
-
-	Vulnerabilities []vexVulnerability `json:"vulnerabilities,omitempty"`
-}
-
-type vexVulnerability struct {
-	BOMRef      string       `json:"bom-ref,omitempty"`
-	ID          string       `json:"id"`
-	Source      *vexSource   `json:"source,omitempty"`
-	Ratings     []vexRating  `json:"ratings,omitempty"`
-	Recommend   string       `json:"recommendation,omitempty"`
-	Analysis    *vexAnalysis `json:"analysis,omitempty"`
-	Affects     []vexAffect  `json:"affects,omitempty"`
-	Properties  []aibomProp  `json:"properties,omitempty"`
-	Description string       `json:"description,omitempty"`
-}
-
-type vexSource struct {
-	Name string `json:"name,omitempty"`
-	URL  string `json:"url,omitempty"`
-}
-
-type vexRating struct {
-	Source   *vexSource `json:"source,omitempty"`
-	Severity string     `json:"severity,omitempty"`
-}
-
-type vexAnalysis struct {
-	State         string   `json:"state,omitempty"`
-	Justification string   `json:"justification,omitempty"`
-	Response      []string `json:"response,omitempty"`
-	Detail        string   `json:"detail,omitempty"`
-}
-
-type vexAffect struct {
-	Ref string `json:"ref"`
 }
 
 // BuildCDXVEX assembles a CycloneDX VEX document and validates it before
@@ -194,29 +149,20 @@ func BuildCDXVEX(findings []VEXFinding, opts VEXOptions) ([]byte, error) {
 // BuildCDXVEXDocument assembles the document without validating it, for callers
 // that need to sign or post-process before the final bytes exist.
 func BuildCDXVEXDocument(findings []VEXFinding, opts VEXOptions) any {
-	spec := nonEmpty(opts.SpecVersion, "1.7")
-	ts := opts.GeneratedAt
-	if ts == "" {
-		ts = time.Now().UTC().Format(time.RFC3339)
+	spec := nonEmpty(opts.SpecVersion, DefaultSpecVersion)
+
+	// A VEX statement is about software that exists and is deployed, so the
+	// stage its claims were captured at is operations. This document used to
+	// carry no lifecycles at all — the only one of the four builders that
+	// omitted them entirely, which left a consumer unable to tell a statement
+	// about a running system from one about a design proposal.
+	authorship := authorshipFrom(opts.Authorship, nonEmpty(opts.ToolName, ToolVEX), opts.ToolVersion, opts.GeneratedAt, PhaseOperations)
+	if opts.AuthorName != "" && len(authorship.Authors) == 0 {
+		authorship.Authors = []OrganizationalContact{{Name: opts.AuthorName}}
 	}
 
-	doc := &vexDoc{
-		BOMFormat:    "CycloneDX",
-		SpecVersion:  spec,
-		SerialNumber: "urn:uuid:" + uuid.New().String(),
-		Version:      1,
-		Metadata: &aibomMetadata{
-			Timestamp: ts,
-			Tools: &aibomTools{Components: []aibomComp{{
-				Type:    "application",
-				Name:    nonEmpty(opts.ToolName, "vulnetix-cdx"),
-				Version: nonEmpty(opts.ToolVersion, "cli"),
-			}}},
-		},
-	}
-	if opts.AuthorName != "" {
-		doc.Metadata.Authors = []aibomContact{{Name: opts.AuthorName}}
-	}
+	doc := &Document{BOMFormat: "CycloneDX", SpecVersion: spec, Metadata: &Metadata{}}
+	_, _ = ApplyAuthorship(doc, authorship)
 	if opts.Project != nil {
 		projComp, _ := buildProjectComponent(opts.Project)
 		doc.Metadata.Component = projComp
@@ -235,9 +181,9 @@ func BuildCDXVEXDocument(findings []VEXFinding, opts VEXOptions) any {
 // document failed the schema's uniqueItems constraint. Keying by purl is what
 // fixes it, and it is also simply what the document means: a component appears
 // once, and the vulnerabilities point at it.
-func vexComponents(findings []VEXFinding) ([]aibomComp, map[string]string) {
+func vexComponents(findings []VEXFinding) ([]Component, map[string]string) {
 	refByKey := map[string]string{}
-	var comps []aibomComp
+	var comps []Component
 
 	for _, f := range findings {
 		if f.Package == "" {
@@ -249,7 +195,7 @@ func vexComponents(findings []VEXFinding) ([]aibomComp, map[string]string) {
 		}
 		ref := purl
 		refByKey[purl] = ref
-		comps = append(comps, aibomComp{
+		comps = append(comps, Component{
 			Type:    "library",
 			BOMRef:  ref,
 			Name:    f.Package,
@@ -266,8 +212,8 @@ func vexComponents(findings []VEXFinding) ([]aibomComp, map[string]string) {
 //
 // This is the half that makes the document usable. A vulnerability with no
 // `affects` tells a consumer that something, somewhere, is vulnerable.
-func vexVulnerabilities(findings []VEXFinding, refByKey map[string]string) []vexVulnerability {
-	byID := map[string]*vexVulnerability{}
+func vexVulnerabilities(findings []VEXFinding, refByKey map[string]string) []Vulnerability {
+	byID := map[string]*Vulnerability{}
 	affected := map[string]map[string]bool{}
 	var order []string
 
@@ -277,17 +223,17 @@ func vexVulnerabilities(findings []VEXFinding, refByKey map[string]string) []vex
 		}
 		v := byID[f.CVEID]
 		if v == nil {
-			v = &vexVulnerability{
+			v = &Vulnerability{
 				BOMRef:   "vuln:" + f.CVEID,
 				ID:       f.CVEID,
-				Source:   &vexSource{Name: "vulnetix"},
+				Source:   &VulnSource{Name: "vulnetix"},
 				Analysis: vexAnalysisFor(f),
 			}
 			if sev := strings.ToLower(strings.TrimSpace(f.Severity)); cdxVEXSeverities[sev] && sev != "unknown" {
-				v.Ratings = []vexRating{{Source: &vexSource{Name: "vulnetix"}, Severity: sev}}
+				v.Ratings = []Rating{{Source: &VulnSource{Name: "vulnetix"}, Severity: sev}}
 			}
 			if f.FixedVer != "" {
-				v.Recommend = "Upgrade to " + f.FixedVer
+				v.Recommendation = "Upgrade to " + f.FixedVer
 			}
 			v.Properties = vexProperties(f.Properties)
 			byID[f.CVEID] = v
@@ -296,12 +242,12 @@ func vexVulnerabilities(findings []VEXFinding, refByKey map[string]string) []vex
 		}
 		if ref, ok := refByKey[vexPurl(f)]; ok && !affected[f.CVEID][ref] {
 			affected[f.CVEID][ref] = true
-			v.Affects = append(v.Affects, vexAffect{Ref: ref})
+			v.Affects = append(v.Affects, Affect{Ref: ref})
 		}
 	}
 
 	sort.Strings(order)
-	out := make([]vexVulnerability, 0, len(order))
+	out := make([]Vulnerability, 0, len(order))
 	for _, id := range order {
 		v := byID[id]
 		sort.Slice(v.Affects, func(i, j int) bool { return v.Affects[i].Ref < v.Affects[j].Ref })
@@ -312,8 +258,8 @@ func vexVulnerabilities(findings []VEXFinding, refByKey map[string]string) []vex
 
 // vexAnalysisFor maps one finding onto a CycloneDX analysis object, keeping
 // every value inside the enum the schema defines.
-func vexAnalysisFor(f VEXFinding) *vexAnalysis {
-	a := &vexAnalysis{State: VEXState(f.Status)}
+func vexAnalysisFor(f VEXFinding) *Analysis {
+	a := &Analysis{State: VEXState(f.Status)}
 
 	if cdxVEXJustifications[f.Justification] {
 		a.Justification = f.Justification
@@ -404,7 +350,7 @@ func vexPurl(f VEXFinding) string {
 	return fmt.Sprintf("pkg:%s/%s@%s", eco, f.Package, f.InstalledVer)
 }
 
-func vexProperties(props map[string]string) []aibomProp {
+func vexProperties(props map[string]string) []Property {
 	if len(props) == 0 {
 		return nil
 	}
@@ -413,7 +359,7 @@ func vexProperties(props map[string]string) []aibomProp {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	out := make([]aibomProp, 0, len(names))
+	out := make([]Property, 0, len(names))
 	for _, n := range names {
 		if props[n] != "" {
 			out = append(out, mkProp(n, props[n]))
