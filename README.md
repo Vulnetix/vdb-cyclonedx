@@ -29,3 +29,15 @@ See [PLAN.md](./PLAN.md) for the full design and extraction plan.
 Scaffold + plan. Implementation extracts `internal/processor/{cyclonedx,parity,purl}.go` from
 `vdb-api-cyclonedx-uploads`, with embedded official JSON schemas for validation.
 <!-- ci-touch: 2026-08-24T13:13:32Z -->
+
+## Conformance
+
+The OWASP TEA conformance run captures CycloneDX responses to disk. Re-validate those captures
+against the bundled schemas with `TestRealCapturedDocuments`, which skips unless
+`VEX_CAPTURE_DIR` points at a run's recordings:
+
+    VEX_CAPTURE_DIR=~/GitHub/owasp-tea-conformance/reports/vulnetix/responses/cyclonedx go test ./... -run TestRealCapturedDocuments -v
+
+The conformance run itself is the `publish-tea` job in `.github/workflows/vulnetix.yml` (triggered
+on push, release, or manually via `workflow_dispatch`); it delegates to
+`Vulnetix/cli/.github/workflows/tea-release.yml`.
