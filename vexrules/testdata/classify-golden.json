@@ -1,0 +1,1021 @@
+{
+  "comment": "Contract for vexrules.Classify (vdb-cyclonedx). Pinned byte for byte by website src/shared/vex-disposition-cases.json. Change both together.",
+  "cases": [
+    {
+      "name": "cdx false_positive",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "false_positive"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "cdx false_positive ignores its justification",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "false_positive",
+        "cdxJustification": "code_not_reachable"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "cdx false_positive mixed case",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "False_Positive"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "cdx exploitable will_not_fix",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix"
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "cdx exploitable will_not_fix with workaround",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix",
+          "workaround_available"
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "cdx exploitable can_not_fix alone",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "can_not_fix"
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "cdx exploitable can_not_fix with workaround is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "can_not_fix",
+          "workaround_available"
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx no state will_not_fix",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxResponses": [
+          "will_not_fix"
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "cdx will_not_fix and update conflict",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix",
+          "update"
+        ]
+      },
+      "want": {
+        "kind": "conflict",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx will_not_fix and rollback conflict",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix",
+          "rollback"
+        ]
+      },
+      "want": {
+        "kind": "conflict",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx can_not_fix and update conflict",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "can_not_fix",
+          "update"
+        ]
+      },
+      "want": {
+        "kind": "conflict",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx exploitable update is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "update"
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx bare exploitable is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx in_triage is undecided",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "in_triage"
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx in_triage with will_not_fix is undecided",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "in_triage",
+        "cdxResponses": [
+          "will_not_fix"
+        ]
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx not_affected is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "not_affected",
+        "cdxJustification": "code_not_reachable"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx not_affected code_not_present is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "not_affected",
+        "cdxJustification": "code_not_present"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx resolved is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "resolved"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx resolved_with_pedigree is triage",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "resolved_with_pedigree"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx unknown state is undecided",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "ignored"
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx no state no response is undecided",
+      "raw": {
+        "format": "cyclonedx"
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "cdx marker false_positive",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "false_positive",
+        "cdxProperties": {
+          "vulnetix:suppression/source": "console",
+          "vulnetix:suppression/type": "false_positive",
+          "vulnetix:suppression/uuid": "5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        }
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "cdx marker wont_fix",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix"
+        ],
+        "cdxProperties": {
+          "vulnetix:suppression/type": "wont_fix",
+          "vulnetix:suppression/uuid": "5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        }
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "cdx marker risk_accepted keeps its type",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "exploitable",
+        "cdxResponses": [
+          "will_not_fix"
+        ],
+        "cdxProperties": {
+          "vulnetix:suppression/type": "risk_accepted",
+          "vulnetix:suppression/uuid": "5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        }
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "risk_accepted"
+      }
+    },
+    {
+      "name": "cdx marker mitigated",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "not_affected",
+        "cdxJustification": "protected_by_mitigating_control",
+        "cdxProperties": {
+          "vulnetix:suppression/type": "mitigated",
+          "vulnetix:suppression/uuid": "5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        }
+      },
+      "want": {
+        "kind": "mitigated",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "mitigated"
+      }
+    },
+    {
+      "name": "cdx marker nosec reads as false positive",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "false_positive",
+        "cdxProperties": {
+          "vulnetix:suppression/type": "nosec",
+          "vulnetix:suppression/uuid": "5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        }
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "nosec"
+      }
+    },
+    {
+      "name": "cdx marker without uuid is ignored",
+      "raw": {
+        "format": "cyclonedx",
+        "cdxState": "not_affected",
+        "cdxProperties": {
+          "vulnetix:suppression/type": "false_positive"
+        }
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex not_affected component_not_present",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "component_not_present"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "openvex not_affected vulnerable_code_not_present is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "vulnerable_code_not_present"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex not_affected not_in_execute_path is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "vulnerable_code_not_in_execute_path"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex not_affected inline_mitigations is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "inline_mitigations_already_exist"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex not_affected no justification is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex affected will not fix",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "Will not fix: vendor EOL"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected won't fix curly apostrophe",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "We won’t fix this in 1.x"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected wont fix",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "wont fix"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected will not be fixed",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "This will not be fixed in the 1.x line"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected no fix planned",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "No fix is planned for this release line."
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected risk accepted",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "Risk accepted by the product owner"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected accepted the risk",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "Security has accepted the risk until Q3"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "text",
+        "rule": true,
+        "active": false,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex affected upgrade is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "Upgrade to 2.4.1"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex affected fix soon is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexActionStatement": "A fix will ship next week"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex affected empty action is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex fixed is triage",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "fixed"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex under_investigation is undecided",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "under_investigation"
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "openvex uppercase status",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "NOT_AFFECTED",
+        "openvexJustification": "component_not_present"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "openvex marker false_positive",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "vulnerable_code_not_present",
+        "openvexStatusNotes": "vulnetix:suppression/type=false_positive; vulnetix:suppression/uuid=5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10; vulnetix:suppression/source=vex"
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "openvex marker wont_fix",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "affected",
+        "openvexStatusNotes": "vulnetix:suppression/type=wont_fix; vulnetix:suppression/uuid=5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10",
+        "openvexActionStatement": "Will not fix: legacy"
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "openvex unrelated status notes",
+      "raw": {
+        "format": "openvex",
+        "openvexStatus": "not_affected",
+        "openvexJustification": "vulnerable_code_not_present",
+        "openvexStatusNotes": "Reviewed by the platform team"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf known_not_affected component_not_present",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_not_affected",
+        "csafFlags": [
+          "component_not_present"
+        ]
+      },
+      "want": {
+        "kind": "false_positive",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "false_positive"
+      }
+    },
+    {
+      "name": "csaf known_not_affected other flag is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_not_affected",
+        "csafFlags": [
+          "vulnerable_code_not_in_execute_path"
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf known_not_affected no flag is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_not_affected"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf known_affected no_fix_planned",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "no_fix_planned"
+          }
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "csaf no_fix_planned with workaround",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "no_fix_planned"
+          },
+          {
+            "category": "workaround"
+          }
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "csaf no_fix_planned with vendor_fix conflict",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "no_fix_planned"
+          },
+          {
+            "category": "vendor_fix"
+          }
+        ]
+      },
+      "want": {
+        "kind": "conflict",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf none_available alone",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "none_available"
+          }
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "structured",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    },
+    {
+      "name": "csaf none_available with mitigation is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "none_available"
+          },
+          {
+            "category": "mitigation"
+          }
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf none_available with vendor_fix is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "none_available"
+          },
+          {
+            "category": "vendor_fix"
+          }
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf known_affected vendor_fix is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "vendor_fix"
+          }
+        ]
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf fixed is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "fixed"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf first_fixed is triage",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "first_fixed"
+      },
+      "want": {
+        "kind": "triage_only",
+        "basis": "structured",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf under_investigation is undecided",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "under_investigation"
+      },
+      "want": {
+        "kind": "undecided",
+        "basis": "",
+        "rule": false,
+        "active": false,
+        "suppressionType": ""
+      }
+    },
+    {
+      "name": "csaf marker",
+      "raw": {
+        "format": "csaf",
+        "csafProductStatus": "known_affected",
+        "csafRemediations": [
+          {
+            "category": "no_fix_planned"
+          }
+        ],
+        "csafNotes": [
+          "vulnetix:suppression/type=wont_fix; vulnetix:suppression/uuid=5b0c2a8e-1f6e-4d3a-9c1b-7e2f4a6d8c10"
+        ]
+      },
+      "want": {
+        "kind": "wont_fix",
+        "basis": "marker",
+        "rule": true,
+        "active": true,
+        "suppressionType": "wont_fix"
+      }
+    }
+  ]
+}
