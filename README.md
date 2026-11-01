@@ -41,3 +41,27 @@ against the bundled schemas with `TestRealCapturedDocuments`, which skips unless
 The conformance run itself is the `publish-tea` job in `.github/workflows/vulnetix.yml` (triggered
 on push, release, or manually via `workflow_dispatch`); it delegates to
 `Vulnetix/cli/.github/workflows/tea-release.yml`.
+
+## VEX dispositions and suppression rules (`vexrules/`)
+
+`vexrules` reads OpenVEX, CycloneDX VEX and CSAF VEX (`Detect`, `Parse`) and keeps each
+statement's raw fields, so `Classify` can decide from state plus justification, responses,
+action text, CSAF flags and remediations. Only two dispositions become suppression rules:
+
+| Disposition | Examples | Rule |
+|---|---|---|
+| `false_positive` | CycloneDX `false_positive`; OpenVEX `not_affected` + `component_not_present`; CSAF `known_not_affected` + `component_not_present` | active |
+| `wont_fix` | CycloneDX `exploitable` + `will_not_fix`, or `can_not_fix` alone; CSAF `known_affected` + `no_fix_planned` with no `vendor_fix` | active |
+| `wont_fix` read from text | OpenVEX `affected` whose `action_statement` says it will not be fixed | inactive, pending review |
+| `conflict` | a won't fix response together with `update`, `rollback` or a `vendor_fix` | none, flagged |
+| `mitigated` | only a Vulnetix marker for a mitigated rule | links to that rule |
+| `triage_only`, `undecided` | every other state | none |
+
+A `vulnetix:suppression/{type,uuid,source}` marker (a CycloneDX property, an OpenVEX
+`status_notes` line or a CSAF note) links a statement back to the rule that minted it, so
+re-ingesting Vulnetix VEX does not create a second rule. The package also holds the rule
+matcher (`RuleMatches`) and the identity ladder (`NewIdentity`) the services share.
+
+The classifier's cases are in `vexrules/testdata/classify-golden.json`. The website keeps a
+byte copy at `src/shared/vex-disposition-cases.json` for its TypeScript port; change both
+together. Regenerate the golden with `VEXRULES_UPDATE=1 go test ./vexrules/`.
