@@ -24,6 +24,55 @@ Consumed as a sibling module via `replace github.com/Vulnetix/vdb-cyclonedx => .
 
 See [PLAN.md](./PLAN.md) for the full design and extraction plan.
 
+## Generating an SBOM (`BuildSBOM`)
+
+Other Go projects can generate the same Vulnetix CycloneDX document shape by
+importing `github.com/Vulnetix/vdb-cyclonedx` directly:
+
+```go
+package main
+
+import (
+	"os"
+
+	cyclonedx "github.com/Vulnetix/vdb-cyclonedx"
+)
+
+func main() {
+	bom, err := cyclonedx.BuildSBOM(cyclonedx.SBOMInventory{
+		Packages: []cyclonedx.SBOMPackage{{
+			Name:       "example",
+			Version:    "1.2.3",
+			Ecosystem:  "golang",
+			Scope:      "production",
+			SourceFile: "go.mod",
+			SourceType: "manifest",
+			IsDirect:   true,
+		}},
+	}, cyclonedx.SBOMOptions{
+		SpecVersion: "1.7",
+		ToolName:    "my-builder",
+		ToolVersion: "1.0.0",
+	})
+	if err != nil {
+		panic(err)
+	}
+	_ = os.WriteFile("sbom.cdx.json", bom, 0o644)
+}
+```
+
+`BuildSBOM` can also merge `AIDetections` and `CryptoDetections` so a single
+CycloneDX file carries package SBOM, AIBOM and CBOM components, accepts a resolved
+dependency graph via `SBOMInventory.Dependencies`, and takes an optional
+`SBOMOptions.CanonicalSPDXID` hook so recognised licenses are emitted as
+`license.id` instead of free text. The builder validates the output against the
+bundled CycloneDX schema before returning JSON.
+
+[`vulnetix cdx`](https://github.com/Vulnetix/cli) (alias `vulnetix sbom`) is the CLI front end for this: it discovers packages from
+manifests, installed package trees, container package databases, Dockerfiles,
+CI/CD pipeline files, shell scripts and the metadata compiled into Go, Rust and
+JVM artefacts, then writes one validated CycloneDX file offline.
+
 ## Status
 
 Scaffold + plan. Implementation extracts `internal/processor/{cyclonedx,parity,purl}.go` from
