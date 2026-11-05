@@ -42,3 +42,7 @@ triggers: push
 publish: true
 tea:
   visibility: public
+extras:
+  - action: gha-settings
+  - action: gha-org
+  - action: gha-audit
