@@ -21,3 +21,4 @@ go.work.sum
 
 # Vulnetix scan output and credentials
 .vulnetix/
+!.vulnetix/workflow.yaml
