@@ -114,3 +114,25 @@ matcher (`RuleMatches`) and the identity ladder (`NewIdentity`) the services sha
 The classifier's cases are in `vexrules/testdata/classify-golden.json`. The website keeps a
 byte copy at `src/shared/vex-disposition-cases.json` for its TypeScript port; change both
 together. Regenerate the golden with `VEXRULES_UPDATE=1 go test ./vexrules/`.
+
+## Mutation testing
+
+Mutation testing scores how well the test suite kills small semantic changes (mutants) of a source file. The tool is the [`avito-tech/go-mutesting`](https://github.com/avito-tech/go-mutesting) fork of `go-mutesting`, pinned to `v0.0.0-20261002081621-9ce5f731e321`. It is dev-only: this module does not depend on it, because its `go.mod` requires Go 1.27. Build it in `bin/` (gitignored) from a source copy whose `go` directive is lowered to the local toolchain:
+
+```bash
+mkdir -p bin/mutesting-src
+cd bin/mutesting-src
+GOTOOLCHAIN=auto go mod download github.com/avito-tech/go-mutesting@v0.0.0-20261002081621-9ce5f731e321
+cp -r "$(go env GOMODCACHE)/github.com/avito-tech/go-mutesting@v0.0.0-20261002081621-9ce5f731e321/." .
+go mod edit -go=1.26
+GOTOOLCHAIN=local go mod tidy
+GOTOOLCHAIN=local go build -o ../go-mutesting ./cmd/go-mutesting
+```
+
+Score a root-package file with (run from the repository root):
+
+```bash
+./bin/go-mutesting purl.go
+```
+
+The tool applies each mutant in turn and runs the package tests against it, then prints a summary line of the form `The mutation score is 0.571429 (16 passed, 12 failed, 2 duplicated, 0 skipped, total is 28)`. A `passed` mutant is one the tests killed; a `failed` mutant survives the tests and marks behaviour the suite does not cover. The score tracks the test suite, so expect it to move as tests change.
