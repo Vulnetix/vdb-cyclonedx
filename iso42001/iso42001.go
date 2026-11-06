@@ -253,30 +253,6 @@ func hasMethod(c Component, m string) bool {
 	return false
 }
 
-// ── A.3 Internal organization ─────────────────────────────────────────────────
-//
-// Neither control is artifact-backed: both describe an organizational
-// arrangement, not a property of a system Vulnetix can observe. They are
-// emitted as not-applicable with a stated reason rather than omitted, because a
-// category absent from the report cannot be graded and nothing tells the reader
-// it is missing — the whole objective simply vanishes from Annex A.
-
-func a32() ControlMapping {
-	m := ctl("A.3", "A.3.2", "AI roles and responsibilities",
-		"Roles and responsibilities for the AI management system are defined and allocated.")
-	m.Status = StatusNotApplicable
-	m.Rationale = "Role allocation is an organizational arrangement recorded outside the system; an AI inventory observes what runs, not who is accountable for it."
-	return m
-}
-
-func a33() ControlMapping {
-	m := ctl("A.3", "A.3.3", "Reporting of concerns",
-		"A process to report concerns about the organization's role with respect to an AI system is defined.")
-	m.Status = StatusNotApplicable
-	m.Rationale = "A concern-reporting process is a human procedure; no scan artifact evidences that one exists or that it is used."
-	return m
-}
-
 // ── A.4 Resources ─────────────────────────────────────────────────────────────
 
 func a42(scan Scan, inv inventory) ControlMapping {

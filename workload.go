@@ -109,7 +109,7 @@ func (w *WorkloadIdentity) Token(ctx context.Context, audience string) (string, 
 	if err != nil {
 		return "", fmt.Errorf("workload identity: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -162,7 +162,7 @@ func (w *WorkloadIdentity) resolveTokenEndpoint(ctx context.Context) (string, er
 	if err != nil {
 		return "", fmt.Errorf("workload identity: discovery: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
