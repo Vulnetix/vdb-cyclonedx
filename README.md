@@ -124,6 +124,7 @@ mkdir -p bin/mutesting-src
 cd bin/mutesting-src
 GOTOOLCHAIN=auto go mod download github.com/avito-tech/go-mutesting@v0.0.0-20261002081621-9ce5f731e321
 cp -r "$(go env GOMODCACHE)/github.com/avito-tech/go-mutesting@v0.0.0-20261002081621-9ce5f731e321/." .
+chmod -R u+w . # the module cache extracts read-only files
 go mod edit -go=1.26
 GOTOOLCHAIN=local go mod tidy
 GOTOOLCHAIN=local go build -o ../go-mutesting ./cmd/go-mutesting
