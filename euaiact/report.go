@@ -126,9 +126,9 @@ type ReportContext struct {
 	PriorScanCount   int // AI-BOM scans over time (monitoring signal)
 
 	// Findings / risk identification + human triage.
-	FindingTotal            int
-	FindingByCategory       map[string]int // sast|sca|secrets|iac|oci|license
-	FindingBySeverity       map[string]int
+	FindingTotal      int
+	FindingByCategory map[string]int // sast|sca|secrets|iac|oci|license
+	FindingBySeverity map[string]int
 	// FindingsPredictionOnly counts findings carrying a CESS prediction score
 	// and no impact score. They read "unknown" in every severity breakdown —
 	// correctly, because severity is impact and CESS is a forecast — and the
@@ -136,7 +136,7 @@ type ReportContext struct {
 	// finding read `critical` here and `unknown` everywhere else in the
 	// product. Counted separately so a report can say why they are unknown
 	// rather than leaving a reader to conclude they were never scored.
-	FindingsPredictionOnly int
+	FindingsPredictionOnly  int
 	TriagedTotal            int
 	AffectedTotal           int
 	NotAffectedTotal        int
