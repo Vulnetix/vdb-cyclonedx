@@ -170,6 +170,102 @@ func fulcioStub(t *testing.T, subject string) *httptest.Server {
 	}))
 }
 
+// fulcioDetachedStub is fulcioStub answering the chain under
+// signedCertificateDetachedSct instead, the shape a Fulcio deployment returns
+// when it hands the SCT back alongside the certificate rather than embedding it.
+func fulcioDetachedStub(t *testing.T, subject string) *httptest.Server {
+	t.Helper()
+	caKey, caCert := fakeCA(t)
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/signingCert" {
+			http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+			return
+		}
+
+		var body struct {
+			Credentials struct {
+				OIDCIdentityToken string `json:"oidcIdentityToken"`
+			} `json:"credentials"`
+			PublicKeyRequest struct {
+				PublicKey struct {
+					Algorithm string `json:"algorithm"`
+					Content   string `json:"content"`
+				} `json:"publicKey"`
+				ProofOfPossession string `json:"proofOfPossession"`
+			} `json:"publicKeyRequest"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		if body.Credentials.OIDCIdentityToken == "" {
+			http.Error(w, "no identity token", http.StatusBadRequest)
+			return
+		}
+		if body.PublicKeyRequest.PublicKey.Algorithm != "ECDSA" {
+			http.Error(w, "unexpected algorithm", http.StatusBadRequest)
+			return
+		}
+
+		block, _ := pem.Decode([]byte(body.PublicKeyRequest.PublicKey.Content))
+		if block == nil {
+			http.Error(w, "public key is not PEM", http.StatusBadRequest)
+			return
+		}
+		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			http.Error(w, "public key is not PKIX", http.StatusBadRequest)
+			return
+		}
+		pub, ok := parsed.(*ecdsa.PublicKey)
+		if !ok {
+			http.Error(w, "public key is not ECDSA", http.StatusBadRequest)
+			return
+		}
+
+		proof, err := base64.StdEncoding.DecodeString(body.PublicKeyRequest.ProofOfPossession)
+		if err != nil {
+			http.Error(w, "proof is not base64", http.StatusBadRequest)
+			return
+		}
+		digest := sha256.Sum256([]byte(subject))
+		if !ecdsa.VerifyASN1(pub, digest[:], proof) {
+			http.Error(w, "proof of possession does not verify", http.StatusBadRequest)
+			return
+		}
+
+		uri, err := url.Parse(subject)
+		if err != nil {
+			http.Error(w, "subject is not a URI", http.StatusBadRequest)
+			return
+		}
+		leafTmpl := &x509.Certificate{
+			SerialNumber: big.NewInt(2),
+			NotBefore:    time.Now().Add(-time.Minute),
+			NotAfter:     time.Now().Add(10 * time.Minute),
+			KeyUsage:     x509.KeyUsageDigitalSignature,
+			ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning},
+			URIs:         []*url.URL{uri},
+		}
+		leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, pub, caKey)
+		if err != nil {
+			http.Error(w, "issue failed", http.StatusInternalServerError)
+			return
+		}
+
+		leafPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}))
+		caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caCert.Raw}))
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"signedCertificateDetachedSct": map[string]any{
+				"chain": map[string]any{"certificates": []string{leafPEM, caPEM}},
+			},
+		})
+	}))
+}
+
 func rekorStub(t *testing.T, status int) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +407,33 @@ func TestFulcioRejectionMessageReachesTheCaller(t *testing.T) {
 	// accepted, the trust domain is wrong, or the token is stale.
 	if !strings.Contains(err.Error(), "proof of possession") {
 		t.Fatalf("err = %v, want Fulcio's own message", err)
+	}
+}
+
+func TestFulcioDetachedSCTChainIsRead(t *testing.T) {
+	// A Fulcio instance that returns the SCT alongside the certificate answers
+	// under signedCertificateDetachedSct; the chain has to resolve from either
+	// shape, so the detached one is exercised rather than assumed to work.
+	fulcio := fulcioDetachedStub(t, testSPIFFEID)
+	defer fulcio.Close()
+
+	signer := &FulcioSigner{
+		IdentityToken: func(context.Context, string) (string, error) {
+			return unsignedJWT(t, testSPIFFEID), nil
+		},
+		FulcioURL: fulcio.URL,
+		RekorURL:  "-",
+	}
+
+	sig, err := signer.Sign(context.Background(), []byte("payload"))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if sig.KeyID != testSPIFFEID {
+		t.Fatalf("keyId = %q, want the SAN URI %q", sig.KeyID, testSPIFFEID)
+	}
+	if got := strings.Count(sig.CertificatePEM, "BEGIN CERTIFICATE"); got != 2 {
+		t.Fatalf("certificate chain carries %d certificates, want 2", got)
 	}
 }
 
