@@ -152,7 +152,7 @@ func TestSummarize(t *testing.T) {
 // The nistairmf package must reuse the euaiact Status vocabulary so a GUI
 // renders both frameworks with one color map.
 func TestStatusTypesAreShared(t *testing.T) {
-	var s Status = euaiact.StatusSatisfied
+	s := euaiact.StatusSatisfied
 	if s != StatusSatisfied {
 		t.Error("Status type not shared with euaiact")
 	}
