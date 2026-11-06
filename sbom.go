@@ -329,10 +329,14 @@ func SBOMPurl(name, version, ecosystem string) string {
 	if purlType == "npm" && strings.HasPrefix(name, "@") {
 		parts := strings.SplitN(name[1:], "/", 2)
 		if len(parts) == 2 {
+			// url.PathEscape leaves '@' unescaped, which would drop the scope
+			// marker on the round trip through ParsePurl (pkg:npm/scope/pkg
+			// parses back as "scope/pkg"); encode it explicitly as %40.
+			scope := "%40" + url.PathEscape(parts[0])
 			if version != "" {
-				return fmt.Sprintf("pkg:npm/%s/%s@%s", url.PathEscape(parts[0]), parts[1], url.PathEscape(version))
+				return fmt.Sprintf("pkg:npm/%s/%s@%s", scope, url.PathEscape(parts[1]), url.PathEscape(version))
 			}
-			return fmt.Sprintf("pkg:npm/%s/%s", url.PathEscape(parts[0]), parts[1])
+			return fmt.Sprintf("pkg:npm/%s/%s", scope, url.PathEscape(parts[1]))
 		}
 	}
 	if purlType == "maven" && strings.Contains(name, ":") {
