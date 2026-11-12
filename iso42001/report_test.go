@@ -1,6 +1,7 @@
 package iso42001
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Vulnetix/vdb-cyclonedx/euaiact"
@@ -156,5 +157,87 @@ func TestReportCategoriesAndControls(t *testing.T) {
 	}
 	if s.AnnexAMapped >= s.AnnexAControls {
 		t.Errorf("mapped %d of %d: the mapped count must stay below the Annex A total or the disclosure is wrong", s.AnnexAMapped, s.AnnexAControls)
+	}
+}
+
+func TestReportA32RolesAndResponsibilities(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     euaiact.ReportContext
+		status  euaiact.Status
+		inWhy   string
+		gaps    int
+		evCount int
+	}{
+		{"no accounts", euaiact.ReportContext{}, euaiact.StatusGap, "No accounts are recorded", 1, 0},
+		{"accounts, no attributable decision", euaiact.ReportContext{MemberCount: 4, MfaMemberCount: 3}, euaiact.StatusPartial, "no decision in it carries a name", 2, 1},
+		{"accounts and named decisions", euaiact.ReportContext{MemberCount: 4, SsvcDecisionByHuman: 2, SuppressionWithOwner: 1}, euaiact.StatusPartial, "none is attached", 1, 2},
+		{"attached role allocation", euaiact.ReportContext{MemberCount: 4, SsvcDecisionByHuman: 1, ManualEvidenceByControl: map[string]int{"A.3.2": 1}}, euaiact.StatusSatisfied, "attached its role allocation", 0, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := rA32(tc.ctx)
+			if m.ID != "A.3.2" || m.Category != "A.3" {
+				t.Fatalf("control = %s/%s, want A.3/A.3.2", m.Category, m.ID)
+			}
+			if m.Status != tc.status {
+				t.Fatalf("status = %s, want %s", m.Status, tc.status)
+			}
+			if !strings.Contains(m.Rationale, tc.inWhy) {
+				t.Errorf("rationale %q missing %q", m.Rationale, tc.inWhy)
+			}
+			if len(m.Gaps) != tc.gaps {
+				t.Errorf("gaps = %v, want %d", m.Gaps, tc.gaps)
+			}
+			if len(m.Evidence) != tc.evCount {
+				t.Errorf("evidence = %+v, want %d items", m.Evidence, tc.evCount)
+			}
+		})
+	}
+	// The MFA count is carried into the account evidence.
+	m := rA32(euaiact.ReportContext{MemberCount: 4, MfaMemberCount: 3})
+	if !strings.HasPrefix(m.Evidence[0].Detail, "3 protected by a second factor") {
+		t.Errorf("account evidence detail = %q", m.Evidence[0].Detail)
+	}
+}
+
+func TestReportA33ReportingOfConcerns(t *testing.T) {
+	cases := []struct {
+		name    string
+		ctx     euaiact.ReportContext
+		status  euaiact.Status
+		inWhy   string
+		gaps    int
+		evCount int
+	}{
+		{"no channel", euaiact.ReportContext{}, euaiact.StatusGap, "nothing evidences a channel", 1, 0},
+		{"alerts only", euaiact.ReportContext{AlertCount: 5, AlertsAcknowledged: 4, AlertsAcknowledgers: 2}, euaiact.StatusPartial, "no artifact here evidences", 1, 1},
+		{"routes only", euaiact.ReportContext{NotifyIntegrations: []string{"Slack"}}, euaiact.StatusPartial, "no artifact here evidences", 1, 1},
+		{"attached process", euaiact.ReportContext{AlertCount: 1, NotifyIntegrations: []string{"Slack"}, ManualEvidenceByControl: map[string]int{"A.3.3": 2}}, euaiact.StatusSatisfied, "attached the process document", 0, 3},
+		{"attached process, no channel", euaiact.ReportContext{ManualEvidenceByControl: map[string]int{"A.3.3": 1}}, euaiact.StatusSatisfied, "attached the process document", 0, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := rA33(tc.ctx)
+			if m.ID != "A.3.3" || m.Category != "A.3" {
+				t.Fatalf("control = %s/%s, want A.3/A.3.3", m.Category, m.ID)
+			}
+			if m.Status != tc.status {
+				t.Fatalf("status = %s, want %s", m.Status, tc.status)
+			}
+			if !strings.Contains(m.Rationale, tc.inWhy) {
+				t.Errorf("rationale %q missing %q", m.Rationale, tc.inWhy)
+			}
+			if len(m.Gaps) != tc.gaps {
+				t.Errorf("gaps = %v, want %d", m.Gaps, tc.gaps)
+			}
+			if len(m.Evidence) != tc.evCount {
+				t.Errorf("evidence = %+v, want %d items", m.Evidence, tc.evCount)
+			}
+		})
+	}
+	m := rA33(euaiact.ReportContext{AlertCount: 5, AlertsAcknowledged: 4, AlertsAcknowledgers: 2})
+	if !strings.Contains(m.Evidence[0].Detail, "4 acknowledged by") {
+		t.Errorf("alert evidence detail = %q", m.Evidence[0].Detail)
 	}
 }
