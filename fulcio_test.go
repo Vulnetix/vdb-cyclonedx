@@ -77,6 +77,21 @@ func fakeCA(t *testing.T) (*ecdsa.PrivateKey, *x509.Certificate) {
 // here rather than against the real service.
 func fulcioStub(t *testing.T, subject string) *httptest.Server {
 	t.Helper()
+	return fulcioStubAnswering(t, subject, "signedCertificateEmbeddedSct")
+}
+
+// fulcioDetachedStub is fulcioStub answering the chain under
+// signedCertificateDetachedSct instead, the shape a Fulcio deployment returns
+// when it hands the SCT back alongside the certificate rather than embedding it.
+func fulcioDetachedStub(t *testing.T, subject string) *httptest.Server {
+	t.Helper()
+	return fulcioStubAnswering(t, subject, "signedCertificateDetachedSct")
+}
+
+// fulcioStubAnswering is the shared Fulcio stub; member names the response
+// field the issued chain is returned under.
+func fulcioStubAnswering(t *testing.T, subject, member string) *httptest.Server {
+	t.Helper()
 	caKey, caCert := fakeCA(t)
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +178,7 @@ func fulcioStub(t *testing.T, subject string) *httptest.Server {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"signedCertificateEmbeddedSct": map[string]any{
+			member: map[string]any{
 				"chain": map[string]any{"certificates": []string{leafPEM, caPEM}},
 			},
 		})
@@ -311,6 +326,33 @@ func TestFulcioRejectionMessageReachesTheCaller(t *testing.T) {
 	// accepted, the trust domain is wrong, or the token is stale.
 	if !strings.Contains(err.Error(), "proof of possession") {
 		t.Fatalf("err = %v, want Fulcio's own message", err)
+	}
+}
+
+func TestFulcioDetachedSCTChainIsRead(t *testing.T) {
+	// A Fulcio instance that returns the SCT alongside the certificate answers
+	// under signedCertificateDetachedSct; the chain has to resolve from either
+	// shape, so the detached one is exercised rather than assumed to work.
+	fulcio := fulcioDetachedStub(t, testSPIFFEID)
+	defer fulcio.Close()
+
+	signer := &FulcioSigner{
+		IdentityToken: func(context.Context, string) (string, error) {
+			return unsignedJWT(t, testSPIFFEID), nil
+		},
+		FulcioURL: fulcio.URL,
+		RekorURL:  "-",
+	}
+
+	sig, err := signer.Sign(context.Background(), []byte("payload"))
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if sig.KeyID != testSPIFFEID {
+		t.Fatalf("keyId = %q, want the SAN URI %q", sig.KeyID, testSPIFFEID)
+	}
+	if got := strings.Count(sig.CertificatePEM, "BEGIN CERTIFICATE"); got != 2 {
+		t.Fatalf("certificate chain carries %d certificates, want 2", got)
 	}
 }
 
