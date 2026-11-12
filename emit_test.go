@@ -14,23 +14,18 @@ type errWriter struct{}
 
 func (errWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
-// minimalEmitDoc is the smallest document that validates: root format and
-// spec version, plus a metadata component to carry a purl.
+// minimalEmitDoc is the smallest document that validates: the NewDocument
+// header (format, default spec version, serial, version) plus a metadata
+// component to carry a purl.
 func minimalEmitDoc() *Document {
-	return &Document{
-		BOMFormat:    "CycloneDX",
-		SpecVersion:  "1.7",
-		SerialNumber: "urn:uuid:00000000-0000-4000-8000-000000000017",
-		Version:      1,
-		Metadata: &Metadata{
-			Component: &Component{
-				Type:    "application",
-				Name:    "app",
-				Version: "1.0.0",
-				Purl:    "pkg:generic/app@1.0.0",
-			},
-		},
+	doc := NewDocument("")
+	doc.Metadata.Component = &Component{
+		Type:    "application",
+		Name:    "app",
+		Version: "1.0.0",
+		Purl:    "pkg:generic/app@1.0.0",
 	}
+	return doc
 }
 
 func TestWriteJSON_MatchesMarshalIndent(t *testing.T) {
@@ -88,8 +83,8 @@ func TestMarshalValidatedJSON_ValidDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("revalidation: %v", err)
 	}
-	if version != "1.7" {
-		t.Errorf("version = %q, want 1.7", version)
+	if version != DefaultSpecVersion {
+		t.Errorf("version = %q, want %s", version, DefaultSpecVersion)
 	}
 	if len(violations) != 0 {
 		t.Fatalf("validated output has %d violations: %+v", len(violations), violations)
