@@ -201,3 +201,153 @@ func TestReportEvidenceItemLink(t *testing.T) {
 		t.Errorf("Art 14 should link human triage to /resolve/findings: %+v", a14.Evidence)
 	}
 }
+
+func TestSnapshotRollupAutoResolvedTotal(t *testing.T) {
+	s := SnapshotRollup{ReportedResolved: 3, DisappearedResolved: 5, ResolvedByPolicy: 7, Outcomes: 100}
+	if got := s.AutoResolvedTotal(); got != 15 {
+		t.Fatalf("AutoResolvedTotal = %d, want 15 (reported + disappeared + policy only)", got)
+	}
+	if got := (SnapshotRollup{}).AutoResolvedTotal(); got != 0 {
+		t.Fatalf("zero rollup AutoResolvedTotal = %d, want 0", got)
+	}
+}
+
+func TestQualityGateBlockEnabled(t *testing.T) {
+	c := ReportContext{QualityGateBlocks: []string{"blockOnCritical", "blockOnSecrets"}}
+	cases := map[string]bool{"blockOnCritical": true, "blockOnSecrets": true, "blockOnLicense": false, "": false, "blockoncritical": false}
+	for name, want := range cases {
+		if got := c.QualityGateBlockEnabled(name); got != want {
+			t.Errorf("QualityGateBlockEnabled(%q) = %v, want %v", name, got, want)
+		}
+	}
+	if (ReportContext{}).QualityGateBlockEnabled("blockOnCritical") {
+		t.Error("no blocks configured must report every gate off")
+	}
+}
+
+func TestScannerCategoryHelpers(t *testing.T) {
+	c := ReportContext{
+		// Free-text ScannerRun.category.
+		ScannerRunByCategory: map[string]int{"iac": 4, "cloud": 0},
+		// Strict IngestionSnapshot.category enum.
+		SnapshotByCategory: map[string]int{"iac": 9, "cloud": 2, "oci": 6},
+		FindingByCategory:  map[string]int{"iac": 10, "cloud": 5, "infra": 1},
+	}
+
+	t.Run("HasScannerCategory", func(t *testing.T) {
+		cases := []struct {
+			names []string
+			want  bool
+		}{
+			{[]string{"iac"}, true},         // run count
+			{[]string{"oci"}, true},         // snapshot enum only
+			{[]string{"cloud"}, true},       // zero run count, snapshot present
+			{[]string{"sast"}, false},       // neither
+			{[]string{"sast", "oci"}, true}, // any alias matches
+			{[]string{"sast", "dast"}, false},
+			{nil, false},
+		}
+		for _, tc := range cases {
+			if got := c.HasScannerCategory(tc.names...); got != tc.want {
+				t.Errorf("HasScannerCategory(%v) = %v, want %v", tc.names, got, tc.want)
+			}
+		}
+	})
+
+	t.Run("FindingCategoryCount", func(t *testing.T) {
+		if got := c.FindingCategoryCount("iac", "infra", "cloud"); got != 16 {
+			t.Errorf("FindingCategoryCount(iac, infra, cloud) = %d, want 16", got)
+		}
+		if got := c.FindingCategoryCount("iac"); got != 10 {
+			t.Errorf("FindingCategoryCount(iac) = %d, want 10", got)
+		}
+		if got := c.FindingCategoryCount("sast"); got != 0 {
+			t.Errorf("FindingCategoryCount(sast) = %d, want 0", got)
+		}
+		if got := c.FindingCategoryCount(); got != 0 {
+			t.Errorf("FindingCategoryCount() = %d, want 0", got)
+		}
+	})
+
+	t.Run("ScannerCategoryRuns", func(t *testing.T) {
+		cases := []struct {
+			names []string
+			want  int
+		}{
+			// A non-zero run count wins; the snapshot count is not added on top.
+			{[]string{"iac"}, 4},
+			// A zero run count falls back to the snapshot count.
+			{[]string{"cloud"}, 2},
+			{[]string{"oci"}, 6},
+			{[]string{"iac", "cloud", "oci"}, 12},
+			{[]string{"sast"}, 0},
+			{nil, 0},
+		}
+		for _, tc := range cases {
+			if got := c.ScannerCategoryRuns(tc.names...); got != tc.want {
+				t.Errorf("ScannerCategoryRuns(%v) = %d, want %d", tc.names, got, tc.want)
+			}
+		}
+	})
+}
+
+func TestItoa64MatchesItoa(t *testing.T) {
+	for _, n := range []int64{0, 1, -1, 9, 10, 1234567, -987654, 1 << 40} {
+		if got, want := itoa64(n), itoa(int(n)); got != want {
+			t.Errorf("itoa64(%d) = %q, itoa = %q", n, got, want)
+		}
+	}
+	if got := itoa64(-42); got != "-42" {
+		t.Errorf("itoa64(-42) = %q, want \"-42\"", got)
+	}
+}
+
+func TestSummarizeReportEqualsSummarizeArticles(t *testing.T) {
+	for _, ms := range [][]ArticleMapping{nil, MapReport(ReportContext{}), MapReport(richReportCtx())} {
+		if got, want := SummarizeReport(ms), SummarizeArticles(ms); got != want {
+			t.Errorf("SummarizeReport = %+v, SummarizeArticles = %+v", got, want)
+		}
+	}
+}
+
+func TestLoadFailuresAndDataIntegrityNote(t *testing.T) {
+	var c ReportContext
+	if got := c.DataIntegrityNote(); got != "" {
+		t.Fatalf("DataIntegrityNote with nothing failed = %q, want empty", got)
+	}
+	c.NoteLoadFailure("Suppression")
+	c.NoteLoadFailure("Alert")
+	c.NoteLoadFailure("Suppression")
+	if want := []string{"Suppression", "Alert"}; strings.Join(c.LoadFailures, "|") != strings.Join(want, "|") {
+		t.Fatalf("LoadFailures = %v, want %v (deduplicated, first-seen order)", c.LoadFailures, want)
+	}
+	want := "INCOMPLETE DATA: Suppression, Alert could not be read when this report was generated. " +
+		"Counts drawn from those sources are zero because the data is missing, not because nothing was found, " +
+		"so any conclusion resting on them is unsupported."
+	if got := c.DataIntegrityNote(); got != want {
+		t.Fatalf("DataIntegrityNote =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestReachabilitySampleLocation(t *testing.T) {
+	cases := []struct {
+		name string
+		s    ReachabilitySample
+		want string
+	}{
+		{"no location", ReachabilitySample{CveID: "CVE-2024-0001", StartLine: 12}, ""},
+		{"file only", ReachabilitySample{File: "main.go"}, "main.go"},
+		{"start line only", ReachabilitySample{File: "main.go", StartLine: 12}, "main.go:12"},
+		{"start and end", ReachabilitySample{File: "main.go", StartLine: 12, EndLine: 20}, "main.go:12-20"},
+		{"end equal to start", ReachabilitySample{File: "main.go", StartLine: 12, EndLine: 12}, "main.go:12"},
+		{"end before start", ReachabilitySample{File: "main.go", StartLine: 12, EndLine: 3}, "main.go:12"},
+		{"routine only", ReachabilitySample{Routine: "parse"}, "parse"},
+		{"routine with lines, no file", ReachabilitySample{Routine: "parse", StartLine: 7}, ":7 (parse)"},
+		{"all parts", ReachabilitySample{File: "pkg/x.go", Routine: "Decode", StartLine: 5, EndLine: 9}, "pkg/x.go:5-9 (Decode)"},
+	}
+	for _, tc := range cases {
+		if got := tc.s.Location(); got != tc.want {
+			t.Errorf("%s: Location() = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
