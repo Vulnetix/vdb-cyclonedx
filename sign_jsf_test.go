@@ -24,79 +24,56 @@ import (
 // leaf-first certificatePath array and the fixed-width r||s value.
 
 // chainSigner is a Signer stub that returns a certificate chain, which
-// LocalSigner cannot express.
+// LocalSigner cannot express. The signing itself is delegated to LocalSigner
+// so the DER and algorithm come from the production path.
 type chainSigner struct {
-	key   *ecdsa.PrivateKey
+	*LocalSigner
 	chain string
 }
 
-func (s *chainSigner) Sign(_ context.Context, payload []byte) (RawSignature, error) {
-	digest := sha256.Sum256(payload)
-	der, err := ecdsa.SignASN1(rand.Reader, s.key, digest[:])
+func (s *chainSigner) Sign(ctx context.Context, payload []byte) (RawSignature, error) {
+	raw, err := s.LocalSigner.Sign(ctx, payload)
 	if err != nil {
 		return RawSignature{}, err
 	}
-	return RawSignature{
-		DER:            der,
-		Algorithm:      "ES256",
-		CertificatePEM: s.chain,
-	}, nil
+	raw.CertificatePEM = s.chain
+	return raw, nil
 }
 
-// testCertificateChain returns a leaf certificate and a leaf-first PEM chain of
-// two CERTIFICATE blocks. certificatePath reads block.Type and block.Bytes, so
-// the certificates only need to be well-formed DER; they are never parsed.
+// testCertificateChain returns a leaf certificate issued by the fakeCA root and
+// a leaf-first PEM chain of the two CERTIFICATE blocks. certificatePath reads
+// block.Type and block.Bytes, so the certificates only need to be well-formed
+// DER; they are never parsed.
 func testCertificateChain(t *testing.T) (leafDER []byte, chainPEM string) {
 	t.Helper()
-	now := time.Now()
-	rootKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate root key: %v", err)
-	}
+	rootKey, root := fakeCA(t)
 	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("generate leaf key: %v", err)
 	}
-
-	rootTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "vdb-cyclonedx test root"},
-		NotBefore:             now.Add(-time.Hour),
-		NotAfter:              now.Add(24 * time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-	}
 	leafTmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(2),
 		Subject:      pkix.Name{CommonName: "vdb-cyclonedx test leaf"},
-		NotBefore:    now.Add(-time.Hour),
-		NotAfter:     now.Add(24 * time.Hour),
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
 	}
-
-	rootDER, err := x509.CreateCertificate(rand.Reader, rootTmpl, rootTmpl, &rootKey.PublicKey, rootKey)
-	if err != nil {
-		t.Fatalf("create root certificate: %v", err)
-	}
-	leafDER, err = x509.CreateCertificate(rand.Reader, leafTmpl, rootTmpl, &leafKey.PublicKey, rootKey)
+	leafDER, err = x509.CreateCertificate(rand.Reader, leafTmpl, root, &leafKey.PublicKey, rootKey)
 	if err != nil {
 		t.Fatalf("create leaf certificate: %v", err)
 	}
 
 	chainPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})) +
-		string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}))
+		string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: root.Raw}))
 	return leafDER, chainPEM
 }
 
 func TestJSFSignaturePropertyContract(t *testing.T) {
 	t.Run("certificatePath is leaf-first base64 DER and value is a 64-byte r||s pair", func(t *testing.T) {
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			t.Fatalf("generate key: %v", err)
-		}
+		signer, _ := testSigner(t)
 		leafDER, chain := testCertificateChain(t)
 
 		signed, err := SignBytes(context.Background(), testDocument(t),
-			&chainSigner{key: key, chain: chain}, SignOptions{})
+			&chainSigner{LocalSigner: signer, chain: chain}, SignOptions{})
 		if err != nil {
 			t.Fatalf("SignBytes: %v", err)
 		}
