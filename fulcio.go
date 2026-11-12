@@ -179,7 +179,7 @@ func (f *FulcioSigner) signingCertificate(ctx context.Context, token, subject st
 	if err != nil {
 		return "", fmt.Errorf("fulcio: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -276,7 +276,7 @@ func (f *FulcioSigner) logEntry(ctx context.Context, digest, der []byte, chainPE
 	if err != nil {
 		return "", fmt.Errorf("rekor: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -350,7 +350,7 @@ func githubActionsToken(ctx context.Context, audience string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
