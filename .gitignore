@@ -24,3 +24,6 @@ go.work.sum
 !.vulnetix/workflow.yaml
 !.vulnetix/workflow.yaml
 !.vulnetix/workflow.yaml
+
+# go-mutesting per-mutant report
+report.json

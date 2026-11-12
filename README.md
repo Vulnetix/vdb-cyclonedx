@@ -114,3 +114,13 @@ matcher (`RuleMatches`) and the identity ladder (`NewIdentity`) the services sha
 The classifier's cases are in `vexrules/testdata/classify-golden.json`. The website keeps a
 byte copy at `src/shared/vex-disposition-cases.json` for its TypeScript port; change both
 together. Regenerate the golden with `VEXRULES_UPDATE=1 go test ./vexrules/`.
+
+## Mutation testing
+
+Mutation testing scores how well the test suite kills small semantic changes (mutants) of a source file. The tool is the [`avito-tech/go-mutesting`](https://github.com/avito-tech/go-mutesting) fork of `go-mutesting`, pinned to `v0.0.0-20250418092011-3ce278f4e19f`, the same version `vdb-site` uses (later upstream commits require Go 1.25.5 and then 1.27). It is dev-only: it runs from the pinned version with `go run`, so it never enters this module's `go.mod`. Score a root-package file with (run from the repository root):
+
+```bash
+go run github.com/avito-tech/go-mutesting/cmd/go-mutesting@v0.0.0-20250418092011-3ce278f4e19f purl.go
+```
+
+The tool applies each mutant in turn and runs the package tests against it, then prints a summary line of the form `The mutation score is 0.571429 (16 passed, 12 failed, 2 duplicated, 0 skipped, total is 28)`. A `passed` mutant is one the tests killed; a `failed` mutant survives the tests and marks behaviour the suite does not cover. The per-mutant report lands in `report.json` (gitignored). The score tracks the test suite, so expect it to move as tests change.
